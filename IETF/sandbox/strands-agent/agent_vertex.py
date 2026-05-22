@@ -175,28 +175,29 @@ def _sanitize_schema(schema: dict) -> dict:
 
 
 # ── Endpoint normalization ─────────────────────────────────────────────
-# Gemini occasionally mangles endpoint URLs in tool args (duplicate scheme,
-# pulls the wrong hostname from the cap doc). In this lab the gateway is
-# always at agentgateway:3000 over HTTP — force that canonical value when
-# the model passes anything else.
-_CANONICAL_GW = "http://agentgateway:3000"
-
-
-def _canonical_endpoint(raw: str | None) -> str:
+# In this lab agentgateway is on the docker network at agentgateway:3000
+# with PATH-based routing — each agent is reached at /<agent-name>/mcp.
+# When Gemini emits a mangled or wrong endpoint, rewrite it to the
+# canonical agent path so dns-aid's call_agent_tool hits a real route.
+def _canonical_endpoint(raw: str | None, agent_name: str = "ip-reputation") -> str:
+    canonical = f"http://agentgateway:3000/{agent_name}"
     if not raw:
-        return _CANONICAL_GW
-    # If the model already passed the canonical, keep it.
-    if raw == _CANONICAL_GW or raw.startswith("http://agentgateway:"):
+        return canonical
+    # If already canonical-shaped, keep it.
+    if raw.startswith(f"http://agentgateway:3000/{agent_name}"):
         return raw
-    # Strip duplicate schemes like 'httpshttps://' or 'http'http://'.
+    # Strip duplicate schemes: 'httpshttps://', 'https://https://', etc.
     for prefix in ("httpshttps://", "https://https://", "http://http://"):
         if raw.startswith(prefix):
             raw = "http://" + raw[len(prefix):]
             break
-    # If the host is the lab gateway alias, normalize to agentgateway.
+    # If host is the lab gateway alias or anything mentioning gw.<slug>,
+    # collapse to canonical agent path.
     if "gw." in raw and ".iracictechguru.com" in raw:
-        return _CANONICAL_GW
-    # Default: force HTTP scheme (gateway has no TLS).
+        return canonical
+    if "agentgateway" in raw and f"/{agent_name}" not in raw:
+        return canonical
+    # Force HTTP (gateway has no TLS).
     if raw.startswith("https://"):
         raw = "http://" + raw[len("https://"):]
     return raw
@@ -271,14 +272,17 @@ async def main() -> None:
                         # (duplicated scheme, wrong hostname). For this lab
                         # the canonical gateway is agentgateway:3000 over HTTP.
                         if "endpoint" in args:
-                            args["endpoint"] = _canonical_endpoint(args["endpoint"])
+                            agent_name = args.get("tool_name", "").split("_")[-1] if args.get("tool_name", "").startswith("lookup_") else "ip-reputation"
+                            # tool_name 'lookup_ip' → agent 'ip-reputation' (manual map)
+                            if agent_name == "ip":
+                                agent_name = "ip-reputation"
+                            args["endpoint"] = _canonical_endpoint(args["endpoint"], agent_name=agent_name)
                         print(f"  [tool] {name}({args})")
                         if name not in mcp_tool_lookup:
                             result_text = json.dumps({"error": f"unknown tool: {name}"})
                         else:
                             try:
                                 tool_result = await session.call_tool(name, args)
-                                # MCP returns a list of content blocks; flatten to text.
                                 pieces = []
                                 for block in tool_result.content:
                                     if hasattr(block, "text"):
@@ -288,6 +292,9 @@ async def main() -> None:
                                 result_text = "\n".join(pieces) or "[empty]"
                             except Exception as exc:
                                 result_text = json.dumps({"error": str(exc)})
+                        # Print result so we see exactly what the model receives.
+                        preview = result_text if len(result_text) < 400 else result_text[:400] + "..."
+                        print(f"  [result] {preview}")
 
                         fn_response_parts.append(
                             Part.from_function_response(
