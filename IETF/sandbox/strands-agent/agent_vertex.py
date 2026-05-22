@@ -174,6 +174,34 @@ def _sanitize_schema(schema: dict) -> dict:
     return out
 
 
+# ── Endpoint normalization ─────────────────────────────────────────────
+# Gemini occasionally mangles endpoint URLs in tool args (duplicate scheme,
+# pulls the wrong hostname from the cap doc). In this lab the gateway is
+# always at agentgateway:3000 over HTTP — force that canonical value when
+# the model passes anything else.
+_CANONICAL_GW = "http://agentgateway:3000"
+
+
+def _canonical_endpoint(raw: str | None) -> str:
+    if not raw:
+        return _CANONICAL_GW
+    # If the model already passed the canonical, keep it.
+    if raw == _CANONICAL_GW or raw.startswith("http://agentgateway:"):
+        return raw
+    # Strip duplicate schemes like 'httpshttps://' or 'http'http://'.
+    for prefix in ("httpshttps://", "https://https://", "http://http://"):
+        if raw.startswith(prefix):
+            raw = "http://" + raw[len(prefix):]
+            break
+    # If the host is the lab gateway alias, normalize to agentgateway.
+    if "gw." in raw and ".iracictechguru.com" in raw:
+        return _CANONICAL_GW
+    # Default: force HTTP scheme (gateway has no TLS).
+    if raw.startswith("https://"):
+        raw = "http://" + raw[len("https://"):]
+    return raw
+
+
 # ── Async REPL ─────────────────────────────────────────────────────────
 async def main() -> None:
     vertexai.init(project=PROJECT, location=LOCATION)
@@ -239,6 +267,11 @@ async def main() -> None:
                     for fc in function_calls:
                         name = fc.name
                         args = dict(fc.args or {})
+                        # Normalize endpoint args Gemini sometimes mangles
+                        # (duplicated scheme, wrong hostname). For this lab
+                        # the canonical gateway is agentgateway:3000 over HTTP.
+                        if "endpoint" in args:
+                            args["endpoint"] = _canonical_endpoint(args["endpoint"])
                         print(f"  [tool] {name}({args})")
                         if name not in mcp_tool_lookup:
                             result_text = json.dumps({"error": f"unknown tool: {name}"})
