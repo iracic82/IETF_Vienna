@@ -56,12 +56,40 @@ install_deps() {
     fi
 
     # Patch dns-aid v0.13 in-place: Route53Backend honors ROUTE53_ZONE_ID env.
-    # (Upstream advertises the var but doesn't thread it through the
-    # constructor; this is a 1-line fix we apply post-install.)
     R53_FILE=$(ls /root/.local/share/uv/tools/dns-aid/lib/python*/site-packages/dns_aid/backends/route53.py 2>/dev/null | head -1)
     if [ -n "${R53_FILE}" ] && ! grep -q 'ROUTE53_ZONE_ID' "${R53_FILE}"; then
         echo "[setup] patching ${R53_FILE} to honor ROUTE53_ZONE_ID env"
         sed -i 's|self._zone_id = zone_id$|self._zone_id = zone_id or os.environ.get("ROUTE53_ZONE_ID")|' "${R53_FILE}"
+    fi
+
+    # Patch dns-aid v0.13: chunk TXT record values > 255 chars into multiple
+    # quoted strings (Route 53 limit). Required for JWS-signed records
+    # whose token easily exceeds 255 chars.
+    if [ -n "${R53_FILE}" ] && ! grep -q '_chunk255' "${R53_FILE}"; then
+        echo "[setup] patching ${R53_FILE} to chunk long TXT values (Route53 255-char limit)"
+        python3 - "${R53_FILE}" <<'PYPATCH'
+import sys, re, pathlib
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+helper = '''
+def _chunk255(s):
+    """Split a string into <=255-char chunks and join as Route 53 multi-string TXT value."""
+    return " ".join('"' + s[i:i+255] + '"' for i in range(0, len(s), 255))
+'''
+if "_chunk255" not in src:
+    src = helper + src
+# Replace the single-quoted TXT value construction with chunked form.
+src = src.replace(
+    "{'Value': f'\"{v}\"'}",
+    "{'Value': _chunk255(v)}",
+)
+src = src.replace(
+    "'Value': f'\"{value}\"'",
+    "'Value': _chunk255(value)",
+)
+p.write_text(src)
+print("  applied _chunk255 patch")
+PYPATCH
     fi
 
     # Diagnostic dump — pipefail off so SIGPIPE on '| head' can't kill setup.
