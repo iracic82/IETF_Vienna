@@ -67,11 +67,17 @@ dns-aid publish \
 
 ## Verify
 
+Two paths — public Route 53 and your local CoreDNS:
+
 ```bash
-# Direct query against a public resolver
+# 1. Public resolver (Cloudflare 1.1.1.1) — confirms Route 53 sees it.
 dig +short SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
 
-# Discovery via dns-aid (parses the SVCB + cap doc)
+# 2. Local sandbox resolver (CoreDNS in docker, on host port 5353 since
+#    systemd-resolved owns host port 53).
+dig +short SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @127.0.0.1 -p 5353
+
+# 3. Discovery via dns-aid (parses SVCB + cap doc; uses default resolver)
 dns-aid discover "${SANDBOX_SLUG}.${ZONE}"
 ```
 

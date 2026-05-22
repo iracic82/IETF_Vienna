@@ -68,6 +68,21 @@ analyst> What about 8.8.8.8?
 
 In the DNS-AID Explorer, click a step in the flow graph. The right panel shows the actual request / response payload for that step.
 
+## Bonus — dig from both resolvers, compare
+
+```bash
+source /tmp/sandbox.env
+
+# Public Route 53 (Cloudflare):
+dig +short SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+
+# Local sandbox CoreDNS (forwards upstream; host port 5353 since
+# systemd-resolved owns 53):
+dig +short SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @127.0.0.1 -p 5353
+```
+
+Both should return the same SVCB record. The local resolver is where IETF2 will later push RPZ rules to block agents — useful preview.
+
 ## DAWN money shot
 
 You just watched an AI agent:
