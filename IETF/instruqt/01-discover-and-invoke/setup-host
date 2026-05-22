@@ -86,21 +86,31 @@ export SANDBOX_SLUG
 echo "${SANDBOX_SLUG}" > /tmp/SANDBOX_SLUG
 printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|GOOGLE_|VERTEX_)=' > /tmp/sandbox.env
 
-# ── 5. Pull repo with lab code + Dockerfiles.
+# ── 5. Pull repo with lab code + Dockerfiles. Verbose so failures
+#       leave a clear trail. Always fresh-clone — cheaper than reconciling.
 LAB_REPO_URL="${LAB_REPO_URL:-https://github.com/iracic82/IETF_Vienna.git}"
 LAB_DIR="/opt/lab/IETF_Vienna"
-if [ ! -d "${LAB_DIR}/.git" ]; then
-    echo "[setup] cloning ${LAB_REPO_URL} → ${LAB_DIR}"
-    rm -rf "${LAB_DIR}"
-    mkdir -p /opt/lab
-    git clone --depth 1 "${LAB_REPO_URL}" "${LAB_DIR}"
-else
-    echo "[setup] repo exists — pulling latest"
-    (cd "${LAB_DIR}" && git pull --ff-only) || true
+echo "[setup] cloning ${LAB_REPO_URL} → ${LAB_DIR}"
+rm -rf "${LAB_DIR}"
+mkdir -p /opt/lab
+if ! git clone --verbose --depth 1 "${LAB_REPO_URL}" "${LAB_DIR}" 2>&1; then
+    echo "[setup] ERROR: git clone failed (exit $?)" >&2
+    exit 1
 fi
+echo "[setup] clone done — top-level: $(ls "${LAB_DIR}" | tr '\n' ' ')"
+
+EXPECTED="${LAB_DIR}/IETF/sandbox/bootstrap.sh"
+if [ ! -f "${EXPECTED}" ]; then
+    echo "[setup] ERROR: expected ${EXPECTED} but it's missing." >&2
+    echo "[setup] tree:" >&2
+    find "${LAB_DIR}" -maxdepth 3 -type f | head -30 >&2
+    exit 1
+fi
+echo "[setup] found ${EXPECTED}"
 
 # ── 7. Bring up the IETF stack.
 cd "${LAB_DIR}/IETF/sandbox"
+echo "[setup] pwd before bootstrap: $(pwd)"
 bash bootstrap.sh
 
 # ── 8. Wait for services.
