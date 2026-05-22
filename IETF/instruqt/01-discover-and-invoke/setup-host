@@ -52,21 +52,29 @@ install_deps() {
     # Lands the binary in ~/.local/bin/dns-aid (uv tool dir) which we add to PATH.
     if ! command -v dns-aid >/dev/null 2>&1; then
         echo "[setup] installing dns-aid[mcp,cli,route53] via uv tool install"
-        # Extras from dns-aid-core pyproject.toml:
-        #   cli      → typer + rich           (so `dns-aid <cmd>` works)
-        #   mcp      → mcp + uvicorn          (so the MCP server module loads)
-        #   route53  → boto3                   (so Route 53 backend works)
         uv tool install 'dns-aid[mcp,cli,route53]' 2>&1 | tail -15
     fi
 
-    git --version 2>&1 | head -1
-    aws --version 2>&1 | head -1
-    jq --version 2>&1 | head -1
-    terraform version 2>&1 | head -1
-    docker --version 2>&1 | head -1
-    uv --version 2>&1 | head -1
+    # Patch dns-aid v0.13 in-place: Route53Backend honors ROUTE53_ZONE_ID env.
+    # (Upstream advertises the var but doesn't thread it through the
+    # constructor; this is a 1-line fix we apply post-install.)
+    R53_FILE=$(ls /root/.local/share/uv/tools/dns-aid/lib/python*/site-packages/dns_aid/backends/route53.py 2>/dev/null | head -1)
+    if [ -n "${R53_FILE}" ] && ! grep -q 'ROUTE53_ZONE_ID' "${R53_FILE}"; then
+        echo "[setup] patching ${R53_FILE} to honor ROUTE53_ZONE_ID env"
+        sed -i 's|self._zone_id = zone_id$|self._zone_id = zone_id or os.environ.get("ROUTE53_ZONE_ID")|' "${R53_FILE}"
+    fi
+
+    # Diagnostic dump — pipefail off so SIGPIPE on '| head' can't kill setup.
+    set +o pipefail
+    git --version || true
+    aws --version || true
+    jq --version || true
+    terraform version || true
+    docker --version || true
+    uv --version || true
     echo "[setup] dns-aid binary: $(command -v dns-aid)"
-    dns-aid --version 2>&1 | head -3 || echo "[setup] WARN: dns-aid --version exit $?"
+    dns-aid --version || echo "[setup] WARN: dns-aid --version exit $?"
+    set -o pipefail
 }
 install_deps
 
