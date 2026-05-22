@@ -25,5 +25,11 @@ sandbox.env
 SANDBOX_SLUG
 
 # Lab artifacts that should NOT be public:
-# (the demo signing keys ARE intentionally committed — see shared/trust/README.md)
 shared/coredns/rendered/
+
+# Signing keys — NEVER commit, even demo ones.
+# Each clone generates fresh keys via shared/trust/generate-keys.py.
+shared/trust/keys/*.pem
+shared/trust/jwks.json
+*.pem
+*.key
