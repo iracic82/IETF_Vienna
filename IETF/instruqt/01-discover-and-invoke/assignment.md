@@ -3,7 +3,8 @@ slug: discover-and-invoke
 id: mpmqykxvsmtx
 type: challenge
 title: 1. Tour the lab
-teaser: Read the Strands agent code and explore the running stack — before publishing anything.
+teaser: Read the Strands agent code and explore the running stack — before publishing
+  anything.
 notes:
 - type: text
   contents: |-

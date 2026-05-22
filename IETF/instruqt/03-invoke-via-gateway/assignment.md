@@ -1,8 +1,10 @@
 ---
 slug: invoke-via-gateway
+id: uno7yiytzyew
 type: challenge
 title: 3. Invoke via the gateway
-teaser: Watch the Strands agent discover your published capability and call it through agentgateway.
+teaser: Watch the Strands agent discover your published capability and call it through
+  agentgateway.
 notes:
 - type: text
   contents: |-
@@ -10,18 +12,22 @@ notes:
     discovery anchor. Run the Strands agent and ask a question — it
     will discover, verify, and invoke ip-reputation entirely on its own.
 tabs:
-- title: Terminal
+- id: 0xjpwr7dduro
+  title: Terminal
   type: terminal
   hostname: host
-- title: DNS-AID Explorer
+- id: 2r8mrjsmdsto
+  title: DNS-AID Explorer
   type: service
   hostname: host
   port: 8080
-- title: agentgateway UI
+- id: bfwf3ubokb9x
+  title: agentgateway UI
   type: service
   hostname: host
   port: 15000
-- title: Editor
+- id: yqjcx0qn49ao
+  title: Editor
   type: code
   hostname: host
   path: /root

@@ -1,5 +1,6 @@
 ---
 slug: publish-your-agent
+id: 2kfzxpqcouix
 type: challenge
 title: 2. Publish your federation capability
 teaser: Use the dns-aid CLI to publish your ip-reputation capability into Route 53.
@@ -10,14 +11,17 @@ notes:
     federation members discover your capability. The `dns-aid` CLI talks
     to Route 53 directly using the credentials Instruqt already injected.
 tabs:
-- title: Terminal
+- id: mxmrbnn0bk7x
+  title: Terminal
   type: terminal
   hostname: host
-- title: DNS-AID Explorer
+- id: tlrymxfxefkc
+  title: DNS-AID Explorer
   type: service
   hostname: host
   port: 8080
-- title: Editor
+- id: qtwx3muuwfqo
+  title: Editor
   type: code
   hostname: host
   path: /root

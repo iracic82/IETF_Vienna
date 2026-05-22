@@ -34,15 +34,19 @@ services:
     depends_on: [event-hub]
     networks: [lab]
 
-  # ── 3. agentgateway: mandatory hop, renders config from AGENTS env ──
+  # ── 3. agentgateway: image as-is, config mounted from host ─────────
+  # Matches the proven pattern from DNS-AID/DEMO/agentgateway-2mcp/.
+  # bootstrap.sh renders ../../shared/agentgateway/rendered/config.yaml
+  # before docker compose up.
   agentgateway:
-    build: ../../shared/agentgateway
+    image: ghcr.io/agentgateway/agentgateway:latest
     container_name: agentgateway
-    environment:
-      AGENTS: ip-reputation
+    command: ["-f", "/etc/agentgateway/config.yaml"]
+    volumes:
+      - ../../shared/agentgateway/rendered/config.yaml:/etc/agentgateway/config.yaml:ro
     ports:
-      - "3000:3000"      # caller-facing MCP traffic (also: gw.${SLUG}... public)
-      - "15000:15000"    # admin UI (referenced by the visualizer)
+      - "3000:3000"      # caller-facing MCP traffic
+      - "15000:15000"    # admin UI
       - "15020:15020"    # Prometheus stats
     depends_on: [fastmcp-ip-reputation]
     networks: [lab]

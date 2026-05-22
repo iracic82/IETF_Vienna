@@ -16,11 +16,17 @@ SHARED="$(cd "${HERE}/../../shared" && pwd)"
 export AGENTGATEWAY_IP="0.0.0.0"
 "${SHARED}/coredns/render-corefile.sh" "${SHARED}/coredns/rendered"
 
-# Bring up containers. AGENTS only used by agentgateway to decide which
-# backends to route — independent of whether DNS records are published.
+# Render agentgateway config on the host (matches DEMO/agentgateway-2mcp
+# pattern — image used as-is, config mounted via docker volume).
 export AGENTS="${AGENTS:-ip-reputation}"
+mkdir -p "${SHARED}/agentgateway/rendered"
+python3 "${SHARED}/agentgateway/render-config.py" > "${SHARED}/agentgateway/rendered/config.yaml"
+echo "[bootstrap] rendered agentgateway config:"
+head -20 "${SHARED}/agentgateway/rendered/config.yaml" | sed 's/^/  /'
+
+# Bring up containers.
 cd "${HERE}"
-docker compose up -d --build
+docker compose up -d
 
 echo
 echo "── IETF sandbox containers up ───────────────────────────────────"
