@@ -153,9 +153,10 @@ services:
     command: ["-conf", "/etc/coredns/Corefile"]
     volumes:
       - ../../shared/coredns/rendered:/etc/coredns:ro
+    # Host 53 is owned by systemd-resolved; remap to 5353.
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "5353:53/udp"
+      - "5353:53/tcp"
     depends_on: [agentgateway]
     networks: [lab]
 

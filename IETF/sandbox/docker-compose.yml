@@ -73,9 +73,12 @@ services:
     command: ["-conf", "/etc/coredns/Corefile"]
     volumes:
       - ../../shared/coredns/rendered:/etc/coredns:ro
+    # Host port 53 is owned by systemd-resolved on the Ubuntu VM; expose on
+    # 5353. From the host: `dig @127.0.0.1 -p 5353 ...`
+    # From containers on the lab network: just resolve `coredns:53`.
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "5353:53/udp"
+      - "5353:53/tcp"
     depends_on: [agentgateway]
     networks: [lab]
 
