@@ -1,31 +1,27 @@
 # CoreDNS template rendered by the sandbox bootstrap.
 # Substitutions:
 #   {{SANDBOX_SLUG}}   → from Instruqt random_id
-#   {{ZONE}}           → workshop.highvelocitynetworking.com
+#   {{ZONE}}           → e.g. iracictechguru.com
 #
 # Two zones served:
-#   1. workshop.{{ZONE}}  — local override for THIS sandbox only.
-#      Forces gw.{{SANDBOX_SLUG}}.{{ZONE}} to resolve to the agentgateway
-#      container's docker network address, so Strands-→-gateway traffic
-#      stays inside the sandbox.
-#      All OTHER names in this zone forward upstream (real Route 53
-#      records visible to students via `dig`).
-#
-#   2. .  (root) — recursive forwarder with DNSSEC validation enabled.
-#      Forwards to 1.1.1.1 + 9.9.9.9 (both DNSSEC-validating).
+#   1. {{ZONE}}        — forwarder for the lab's hosted zone. Local
+#                        /etc/coredns/local.hosts can override specific
+#                        names (e.g. force gw.${SLUG}.${ZONE} to the
+#                        agentgateway container's address); everything
+#                        else flows upstream to public resolvers and
+#                        resolves real Route 53 records.
+#   2. .  (root)       — recursive forwarder with DNSSEC validation.
 
-workshop.{{ZONE}} {
+{{ZONE}} {
     log
     errors
     # Local hostname override: gateway hostname resolves to internal container.
-    hosts /etc/coredns/local.hosts workshop.{{ZONE}} {
+    hosts /etc/coredns/local.hosts {{ZONE}} {
         fallthrough
     }
-    # Anything not in local.hosts: forward to public resolvers (Route 53 records).
-    forward . 1.1.1.1 9.9.9.9
-    # Local RPZ — challenges 2 + 4 mutate this file via dns-aid tools.
-    rewrite stop {
-        # placeholder; replaced when student pushes RPZ rules
+    # Anything not in local.hosts: forward to public DNSSEC-validating resolvers.
+    forward . 1.1.1.1 9.9.9.9 {
+        prefer_udp
     }
     cache 30
 }
@@ -35,7 +31,6 @@ workshop.{{ZONE}} {
     errors
     health
     ready
-    # DNSSEC-validating upstreams.
     forward . 1.1.1.1 9.9.9.9 {
         prefer_udp
     }
