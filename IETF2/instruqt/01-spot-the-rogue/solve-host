@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+docker exec strands-agent bash -c "printf 'Scan the federation directory and verify threat-feed\nquit\n' | python /app/agent.py" || true
+exit 0

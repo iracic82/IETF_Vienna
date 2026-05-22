@@ -1,0 +1,46 @@
+{
+  "_comment": "Seed data shared across all threat-intel agents. Each top-level key matches the bucket name expected by the corresponding lookup_* function in server.py. Real labs ship a sanitized subset of MaxMind/Shadowserver/NVD-style data; this example is enough to demo the flow.",
+
+  "ip_reputation": {
+    "8.8.8.8":            {"verdict": "clean",     "confidence": 0.99, "sources": ["google-public-dns"]},
+    "1.1.1.1":            {"verdict": "clean",     "confidence": 0.99, "sources": ["cloudflare-public-dns"]},
+    "185.220.101.45":     {"verdict": "malicious", "confidence": 0.95, "sources": ["tor-exit-list", "abuse.ch"], "tags": ["tor"]},
+    "185.234.72.19":      {"verdict": "malicious", "confidence": 0.92, "sources": ["spamhaus-drop", "feodotracker"], "tags": ["c2", "external"]},
+    "192.0.2.1":           {"verdict": "unknown",   "confidence": 0.5,  "sources": []},
+    "203.0.113.10":        {"verdict": "clean",     "confidence": 0.85, "sources": ["org-internal-allowlist"]}
+  },
+
+  "url_scanner": {
+    "http://malware.example/free.exe":   {"verdict": "malware",  "confidence": 0.98, "sources": ["urlhaus", "phishtank"]},
+    "https://phish.example/login":       {"verdict": "phishing", "confidence": 0.94, "sources": ["phishtank"]},
+    "https://example.com":                {"verdict": "clean",    "confidence": 0.99, "sources": ["alexa-top-1m"]}
+  },
+
+  "file_hash": {
+    "44d88612fea8a8f36de82e1278abb02f": {"verdict": "malicious", "family": "EICAR-Test", "first_seen": "2023-01-12"},
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855": {"verdict": "clean", "note": "empty file SHA-256"}
+  },
+
+  "cve_lookup": {
+    "CVE-2024-3094":  {"severity": "critical", "cvss": 10.0, "affected": ["xz-utils 5.6.0", "xz-utils 5.6.1"], "summary": "Malicious upstream commits introduced backdoor."},
+    "CVE-2021-44228": {"severity": "critical", "cvss": 10.0, "affected": ["log4j-core <2.17.0"], "summary": "Log4Shell RCE via JNDI."}
+  },
+
+  "domain_age": {
+    "example.com":      {"first_seen": "1995-08-14", "registrar": "ICANN-reserved", "age_days": 11200},
+    "phish.example":    {"first_seen": "2026-05-15", "registrar": "Sketchy Domains LLC", "age_days": 6}
+  },
+
+  "asn_info": {
+    "8.8.8.8":            {"asn": 15169, "name": "GOOGLE", "country": "US"},
+    "1.1.1.1":            {"asn": 13335, "name": "CLOUDFLARENET", "country": "US"},
+    "185.234.72.19":      {"asn": 209762, "name": "UnknownHostingCo", "country": "RU"}
+  },
+
+  "passive_dns": {
+    "phish.example":      [
+      {"date": "2026-05-15", "ip": "185.234.72.19"},
+      {"date": "2026-05-18", "ip": "185.234.72.20"}
+    ]
+  }
+}

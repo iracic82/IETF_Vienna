@@ -1,0 +1,11 @@
+#!/bin/bash
+set -uo pipefail
+SLUG=$(cat /tmp/SANDBOX_SLUG 2>/dev/null || hostname)
+NAME="_threat-feed._mcp._agents.${SLUG}.workshop.highvelocitynetworking.com"
+RESULT=$(dig +short @127.0.0.1 SVCB "${NAME}" 2>&1 || true)
+if [ -z "${RESULT}" ] || echo "${RESULT}" | grep -qi NXDOMAIN; then
+    echo "✓ threat-feed is NXDOMAIN at local resolver"
+    exit 0
+fi
+echo "ℹ threat-feed still resolves: ${RESULT}"
+exit 1

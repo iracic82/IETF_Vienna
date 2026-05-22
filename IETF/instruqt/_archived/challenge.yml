@@ -1,0 +1,25 @@
+slug: discover-and-invoke
+id: dns-aid-discover-01
+type: challenge
+title: "Discover and invoke a federation capability"
+teaser: "An AI threat-intel assistant finds the right MCP server via DNS — then invokes it through the gateway."
+notes:
+  - type: text
+    contents: |
+      The federation publishes its capabilities as SVCB records under
+      `_<name>._mcp._agents.<your-subdomain>.workshop.highvelocitynetworking.com`.
+
+      You'll watch the AI assistant:
+        1. Discover the ip-reputation capability via DNS-AID
+        2. Verify DNSSEC (AD flag) + JWS signature on the cap document
+        3. Open an MCP connection through agentgateway
+        4. Return the verdict with a full audit trail
+tabs:
+  - title: Strands Agent
+    type: terminal
+    hostname: terminal
+  - title: DNS-AID Explorer
+    type: website
+    hostname: viz
+difficulty: basic
+timelimit: 900       // 15 minutes

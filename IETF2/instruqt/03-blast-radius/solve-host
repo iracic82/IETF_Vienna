@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+docker exec strands-agent bash -c "printf 'Show me every record signed by k-d.chen-2026, then restore ip-reputation with the ops-team key and the internal endpoint, then RPZ-block David key\nquit\n' | python /app/agent.py" || true
+exit 0

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Node / Next.js
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local state
+*.log
+*.local
+tool-results/
+sandbox.env
+SANDBOX_SLUG
+
+# Lab artifacts that should NOT be public:
+# (the demo signing keys ARE intentionally committed — see shared/trust/README.md)
+shared/coredns/rendered/

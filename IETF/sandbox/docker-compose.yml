@@ -1,0 +1,114 @@
+# IETF lab — short focused track. Six services.
+#
+# Environment expected (set by Instruqt sandbox.hcl from random_id):
+#   SANDBOX_SLUG          unique 8-char per-learner slug
+#   GOOGLE_CLOUD_PROJECT  GCP project for Vertex AI
+#   VERTEX_LOCATION       default us-east5
+#   GOOGLE_APPLICATION_CREDENTIALS  path to service account JSON
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   Route 53 perms
+#   HOSTED_ZONE_ID        Route 53 hosted zone ID for workshop.hvn.com
+
+services:
+
+  # ── 1. event-hub: pubsub for the visualizer ─────────────────────────
+  event-hub:
+    build: ../../shared/sidecars/event-hub
+    container_name: event-hub
+    ports:
+      - "8888:8888"
+    networks: [lab]
+
+  # ── 2. fastmcp-ip-reputation: the single IETF capability ────────────
+  fastmcp-ip-reputation:
+    build: ../../shared/fastmcp-template
+    container_name: fastmcp-ip-reputation
+    environment:
+      MCP_NAME: ip-reputation
+      MCP_VERSION: "1.0.0"
+      MCP_TOOLS: lookup_ip
+      MCP_LOOKUP_DB: /app/lookup-db.json
+      MCP_BEHAVIOR: normal
+      EVENT_SINK_URL: http://event-hub:8888/events
+    volumes:
+      - ../../shared/fastmcp-template/lookup-db.example.json:/app/lookup-db.json:ro
+    depends_on: [event-hub]
+    networks: [lab]
+
+  # ── 3. agentgateway: mandatory hop, renders config from AGENTS env ──
+  agentgateway:
+    build: ../../shared/agentgateway
+    container_name: agentgateway
+    environment:
+      AGENTS: ip-reputation
+    ports:
+      - "3000:3000"      # caller-facing MCP traffic (also: gw.${SLUG}... public)
+      - "15000:15000"    # admin UI (referenced by the visualizer)
+      - "15020:15020"    # Prometheus stats
+    depends_on: [fastmcp-ip-reputation]
+    networks: [lab]
+
+  # ── 4. dns-aid-mcp: wrapped so events flow to the hub ───────────────
+  dns-aid-mcp:
+    build: ../../shared/sidecars/dns-aid-wrapper
+    container_name: dns-aid-mcp
+    environment:
+      EVENT_SINK_URL: http://event-hub:8888/events
+      DNS_AID_BACKEND: route53
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: us-east-1
+    stdin_open: true
+    tty: false
+    depends_on: [event-hub]
+    networks: [lab]
+
+  # ── 5. coredns: local resolver + RPZ (RPZ trivially empty in IETF) ──
+  coredns:
+    image: coredns/coredns:1.11.3
+    container_name: coredns
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ../../shared/coredns/rendered:/etc/coredns:ro
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    depends_on: [agentgateway]
+    networks: [lab]
+
+  # ── 6. strands-agent: the student's interaction surface ─────────────
+  strands-agent:
+    build: ./strands-agent
+    container_name: strands-agent
+    environment:
+      LAB: ietf
+      SANDBOX_SLUG: ${SANDBOX_SLUG}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+      VERTEX_LOCATION: ${VERTEX_LOCATION:-us-east5}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp-sa.json
+      DNS_AID_BACKEND: route53
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS}:/run/secrets/gcp-sa.json:ro
+      - ../../shared/strands_dnsaid:/app/strands_dnsaid:ro
+    stdin_open: true
+    tty: true
+    depends_on: [agentgateway, dns-aid-mcp, coredns]
+    networks: [lab]
+
+  # ── 7. viz: DNS-AID Explorer (Next.js app, port 8080) ──────────────
+  viz:
+    build: ../../viz
+    container_name: viz
+    environment:
+      NEXT_PUBLIC_EVENT_HUB: http://event-hub:8888
+      NEXT_PUBLIC_SANDBOX_SLUG: ${SANDBOX_SLUG}
+    ports:
+      - "8080:8080"
+    depends_on: [event-hub]
+    networks: [lab]
+
+networks:
+  lab:
+    driver: bridge

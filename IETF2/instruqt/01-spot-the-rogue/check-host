@@ -1,0 +1,26 @@
+#!/bin/bash
+# Pass if the student verified threat-feed AND the assistant's most
+# recent answer names at least 3 anomaly signals.
+set -uo pipefail
+
+EVENTS=$(curl -fsS "http://localhost:8888/events?since=500" 2>/dev/null || echo "[]")
+
+echo "${EVENTS}" | python3 <<'PY'
+import json, sys
+events = json.load(sys.stdin)
+verified_threat_feed = False
+recent_text = ""
+for e in events:
+    if e.get("kind") == "tools_call":
+        args = json.dumps(e.get("args") or {})
+        if "verify" in (e.get("tool") or "") and "threat-feed" in args:
+            verified_threat_feed = True
+    if e.get("kind") == "rpc" and e.get("direction") == "response":
+        recent_text = e.get("text_preview", "") or recent_text
+signals = ["external", "tor", "rogue", "k-d.chen", "no policy", "missing policy",
+           "after termination", "endpoint", "185.234"]
+hits = sum(1 for s in signals if s.lower() in recent_text.lower())
+ok = verified_threat_feed and hits >= 3
+print(f"verified_threat_feed={verified_threat_feed}  signal_hits={hits}")
+sys.exit(0 if ok else 1)
+PY

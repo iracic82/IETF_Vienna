@@ -1,0 +1,5 @@
+#!/bin/bash
+set -uo pipefail
+LAB_DIR="/opt/lab/IETF_Vienna"
+[ -d "${LAB_DIR}/IETF2/sandbox" ] && (cd "${LAB_DIR}/IETF2/sandbox" && bash teardown.sh || true)
+exit 0

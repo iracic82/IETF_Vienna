@@ -1,0 +1,7 @@
+slug: harden
+id: dns-aid-workshop-04
+type: challenge
+title: "Challenge 4 — Harden"
+teaser: "Two threats contained. Now make sure this class of attack can't happen again."
+difficulty: intermediate
+timelimit: 1500    # 25 minutes

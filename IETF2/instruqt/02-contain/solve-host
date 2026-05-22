@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+docker exec strands-agent bash -c "printf 'Block threat-feed at our resolver\nquit\n' | python /app/agent.py" || true
+exit 0

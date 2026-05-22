@@ -1,0 +1,10 @@
+#!/bin/bash
+# Clean up sandbox-local DNS records on teardown.
+set -uo pipefail
+
+LAB_DIR="/opt/lab/IETF_Vienna"
+if [ -d "${LAB_DIR}/IETF/sandbox" ]; then
+    cd "${LAB_DIR}/IETF/sandbox"
+    bash teardown.sh || true
+fi
+exit 0

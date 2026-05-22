@@ -1,0 +1,8 @@
+# Rendered per sandbox by bootstrap.
+# The agentgateway container's docker network IP is resolved here as
+# gw.{{SANDBOX_SLUG}}.workshop.highvelocitynetworking.com so internal
+# traffic short-circuits without leaving the sandbox.
+#
+# Format: <ip>  <hostname>
+
+{{AGENTGATEWAY_IP}}  gw.{{SANDBOX_SLUG}}.workshop.highvelocitynetworking.com

@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+docker exec strands-agent bash -c "printf 'Audit every agent, add missing policy URIs, then add 3 RPZ rules: no policy, external endpoint, banned signer\nquit\n' | python /app/agent.py" || true
+exit 0

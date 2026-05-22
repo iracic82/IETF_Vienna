@@ -1,0 +1,18 @@
+[project]
+name = "strands_dnsaid"
+version = "0.1.0"
+description = "Strands Agents wiring for the dns-aid MCP server (IETF_Vienna labs)"
+requires-python = ">=3.12"
+dependencies = [
+    "strands-agents[litellm]>=0.1.0",
+    "litellm[vertex]>=1.50.0",
+    "dns-aid>=0.13.0",
+    "mcp>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

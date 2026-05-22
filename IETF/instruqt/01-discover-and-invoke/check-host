@@ -1,0 +1,25 @@
+#!/bin/bash
+# Pass when the student has made at least one successful lookup_ip call
+# through the federation. We grep the event-hub ring buffer for a
+# tools_call event with tool=lookup_ip.
+set -uo pipefail
+
+EVENTS=$(curl -fsS "http://localhost:8888/events?since=200" 2>/dev/null || echo "[]")
+
+count=$(echo "${EVENTS}" | python3 -c '
+import json, sys
+events = json.load(sys.stdin)
+hit = 0
+for e in events:
+    if e.get("kind") == "tools_call" and e.get("tool") == "lookup_ip":
+        hit += 1
+print(hit)
+' 2>/dev/null || echo 0)
+
+if [ "${count:-0}" -ge 1 ]; then
+    echo "✓ found ${count} lookup_ip invocation(s) via the federation"
+    exit 0
+fi
+
+echo "ℹ no lookup_ip invocation detected yet — ask the assistant about an IP"
+exit 1

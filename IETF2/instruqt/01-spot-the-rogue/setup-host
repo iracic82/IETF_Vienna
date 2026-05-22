@@ -1,0 +1,57 @@
+#!/bin/bash
+# IETF2 — bring up the full incident-response stack on the host VM.
+set -euo pipefail
+
+SANDBOX_SLUG=$(echo -n "${INSTRUQT_PARTICIPANT_ID:-$(hostname)}" | sha1sum | cut -c1-8)
+echo "[setup] sandbox_slug=${SANDBOX_SLUG}"
+
+# Auto-detect GCP project resource name (uppercased) + decode SA key.
+GCP_NAME="${INSTRUQT_GCP_PROJECTS:?missing INSTRUQT_GCP_PROJECTS}"
+GCP_KEY=$(echo "${GCP_NAME%%,*}" | tr '[:lower:]-' '[:upper:]_')
+PROJ_VAR="INSTRUQT_GCP_PROJECT_${GCP_KEY}_PROJECT_ID"
+SA_VAR="INSTRUQT_GCP_PROJECT_${GCP_KEY}_SERVICE_ACCOUNT_KEY"
+
+GOOGLE_CLOUD_PROJECT="${!PROJ_VAR:?missing ${PROJ_VAR}}"
+SA_KEY_B64="${!SA_VAR:?missing ${SA_VAR}}"
+GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-sa.json
+echo "${SA_KEY_B64}" | base64 -d > "${GOOGLE_APPLICATION_CREDENTIALS}"
+chmod 600 "${GOOGLE_APPLICATION_CREDENTIALS}"
+
+export GOOGLE_CLOUD_PROJECT GOOGLE_APPLICATION_CREDENTIALS
+export VERTEX_LOCATION="${VERTEX_LOCATION:-us-east5}"
+
+export SANDBOX_SLUG
+export AWS_ACCESS_KEY_ID="${DEMO_AWS_ACCESS_KEY_ID:?missing Instruqt secret}"
+export AWS_SECRET_ACCESS_KEY="${DEMO_AWS_SECRET_ACCESS_KEY:?missing Instruqt secret}"
+export HOSTED_ZONE_ID="${DEMO_HOSTED_ZONE_ID:?missing Instruqt secret}"
+export AWS_DEFAULT_REGION=us-east-1
+export ZONE="workshop.highvelocitynetworking.com"
+
+echo "[setup] GCP project: ${GOOGLE_CLOUD_PROJECT}"
+echo "[setup] GCP SA key:  ${GOOGLE_APPLICATION_CREDENTIALS} ($(wc -c < ${GOOGLE_APPLICATION_CREDENTIALS}) bytes)"
+
+echo "${SANDBOX_SLUG}" > /tmp/SANDBOX_SLUG
+printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|GOOGLE_|VERTEX_)=' > /tmp/sandbox.env
+
+LAB_REPO_URL="${LAB_REPO_URL:-https://github.com/iracic82/IETF_Vienna.git}"
+LAB_DIR="/opt/lab/IETF_Vienna"
+if [ ! -d "${LAB_DIR}" ]; then
+    apt-get install -y --no-install-recommends git >/dev/null 2>&1 || true
+    mkdir -p /opt/lab
+    git clone --depth 1 "${LAB_REPO_URL}" "${LAB_DIR}"
+fi
+
+which aws >/dev/null 2>&1 || { apt-get install -y --no-install-recommends awscli >/dev/null 2>&1 || pip3 install awscli >/dev/null 2>&1; }
+
+cd "${LAB_DIR}/IETF2/sandbox"
+bash bootstrap.sh
+
+for _ in $(seq 1 30); do
+    if curl -sf http://localhost:8888/healthz >/dev/null 2>&1; then break; fi
+    sleep 2
+done
+
+echo "[setup] IETF2 sandbox ready."
+echo "  Subdomain:  ${SANDBOX_SLUG}.${ZONE}"
+echo "  Federation: 7 legit agents + 1 rogue (threat-feed)"
+exit 0
