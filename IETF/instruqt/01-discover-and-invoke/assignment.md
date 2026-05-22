@@ -2,20 +2,17 @@
 slug: discover-and-invoke
 id: mpmqykxvsmtx
 type: challenge
-title: Discover and invoke a federation capability
-teaser: An AI threat-intel assistant finds the right MCP server via DNS — then invokes
-  it through the gateway.
+title: 1. Tour the lab
+teaser: Read the Strands agent code and explore the running stack — before publishing anything.
 notes:
 - type: text
   contents: |-
-    The federation publishes its capabilities as SVCB records under
-    `_<name>._mcp._agents.<your-subdomain>.workshop.highvelocitynetworking.com`.
+    The lab stack is starting up — agentgateway, fastmcp-ip-reputation,
+    coredns, the visualizer, and the Strands agent (with `dns-aid`
+    pre-installed). DNS records are NOT yet published — that's the next
+    challenge.
 
-    You'll watch the AI assistant:
-    1. Discover the `ip-reputation` capability via DNS-AID
-    2. Verify DNSSEC (AD flag) + JWS signature on the cap document
-    3. Open an MCP connection through agentgateway
-    4. Return the verdict with a full audit trail
+    Take a tour first. Open the **Editor** tab, then explore.
 tabs:
 - id: ypuacyuxwmjd
   title: Terminal
@@ -31,53 +28,60 @@ tabs:
   type: service
   hostname: host
   port: 15000
+- id: dkrksnqefjtn
+  title: Editor
+  type: code
+  hostname: host
+  path: /root
 difficulty: basic
-timelimit: 900
+timelimit: 600
 enhanced_loading: null
 ---
 
-# Discover and invoke a federation capability
+# 1. Tour the lab
 
-## The story
+## What's running
 
-You're the on-call analyst at a SOC that joined the **Threat-Intel Federation** last week. Member organizations publish their capabilities via DNS-AID — an IETF draft for AI agent discovery using DNS records, DNSSEC, and JWS-signed capability documents.
+In the **Terminal** tab:
 
-Your AI assistant doesn't know what's in the federation. It just knows the federation's **predictable entry point**: agents live under `_<name>._mcp._agents.<your-subdomain>`.
-
-## Your task
-
-In the **Terminal** tab, the lab stack is already running. Talk to the Strands assistant:
-
-```
-docker exec -it strands-agent python /app/agent.py
+```bash
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
 ```
 
-Then ask it about a suspicious IP:
+You should see 7 containers — coredns, event-hub, fastmcp-ip-reputation, agentgateway, dns-aid-mcp, strands-agent, viz.
 
+## Read the agent code
+
+In the **Editor** tab, navigate to `lab/IETF/sandbox/strands-agent/`:
+
+- `agent.py` — the REPL that drives the Strands agent
+- `Dockerfile` — what's installed (Strands + LiteLLM Vertex + dns-aid + mcp)
+
+Then `lab/shared/strands_dnsaid/`:
+
+- `factory.py` — how the agent is built (model + tools)
+- `prompts.py` — the system prompt that tells the agent *how* to use DNS-AID
+
+Spend 2 minutes reading. The agent doesn't know any endpoint. It only knows the naming convention `_<name>._<proto>._agents.<domain>` — it discovers via DNS at runtime.
+
+## Look at the gateway
+
+Open the **agentgateway UI** tab. Click through binds → listeners → routes → backends. Path mode: `/ip-reputation/mcp` routes to `fastmcp-ip-reputation:3000`.
+
+## Check DNS state — should be empty
+
+```bash
+source /tmp/sandbox.env
+echo "subdomain = ${SANDBOX_SLUG}.${ZONE}"
+
+dig +short SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+# (no output expected — nothing published yet)
 ```
-analyst> Is 185.220.101.45 malicious?
-```
 
-The assistant will discover the `ip-reputation` capability via DNS-AID, verify the discovery is authentic, and invoke it through **agentgateway** (the mandatory runtime enforcement hop — no direct agent-to-MCP calls).
+## When you're ready
 
-Try a known-clean one too:
+Move to the next challenge — you'll publish your federation's first capability via the `dns-aid` CLI.
 
-```
-analyst> What about 8.8.8.8?
-```
+## Success
 
-## What to watch
-
-Open the **DNS-AID Explorer** tab. As the assistant runs, each protocol step lights up in the flow graph, with full request / response details in the side panel.
-
-## DAWN requirements this demonstrates
-
-- ✅ **Predictable entry point** — naming convention `_<name>._<proto>._agents.<domain>`
-- ✅ **Decentralized publication** — each member runs `dns-aid publish` on their zone
-- ✅ **Service metadata** — SVCB key65400 → cap doc; key65401 → content hash
-- ✅ **Authenticated discovery** — DNSSEC AD flag + JWS signature on cap doc
-- ✅ **Runtime enforcement** — agentgateway is the mandatory hop
-
-## Verification
-
-The challenge auto-completes when you've made at least one successful `lookup_ip` invocation that returned a non-error verdict.
+Auto-completes when all 7 lab containers are healthy.

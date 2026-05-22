@@ -1,0 +1,4 @@
+#!/bin/bash
+set -uo pipefail
+docker exec strands-agent bash -c "echo 'Is 185.220.101.45 malicious?' | python /app/agent.py" || true
+exit 0

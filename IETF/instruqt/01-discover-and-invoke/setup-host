@@ -51,8 +51,12 @@ install_deps() {
     # dns-aid via `uv tool install` — official method per dns-aid-core repo.
     # Lands the binary in ~/.local/bin/dns-aid (uv tool dir) which we add to PATH.
     if ! command -v dns-aid >/dev/null 2>&1; then
-        echo "[setup] installing dns-aid via uv tool install"
-        uv tool install dns-aid 2>&1 | tail -10
+        echo "[setup] installing dns-aid via uv tool install (+ typer/boto3/rich)"
+        uv tool install dns-aid \
+            --with "typer>=0.12" \
+            --with "boto3>=1.34" \
+            --with "rich>=13" \
+            2>&1 | tail -15
     fi
 
     git --version 2>&1 | head -1
@@ -100,12 +104,21 @@ export AWS_ACCESS_KEY_ID="${DEMO_AWS_ACCESS_KEY_ID:?missing Instruqt secret}"
 export AWS_SECRET_ACCESS_KEY="${DEMO_AWS_SECRET_ACCESS_KEY:?missing Instruqt secret}"
 export HOSTED_ZONE_ID="${DEMO_HOSTED_ZONE_ID:?missing Instruqt secret}"
 export AWS_DEFAULT_REGION=us-east-1
-export ZONE="workshop.highvelocitynetworking.com"
+# ZONE matches the Route 53 hosted zone behind DEMO_HOSTED_ZONE_ID.
+export ZONE="${ZONE:-iracictechguru.com}"
 export SANDBOX_SLUG
+
+# dns-aid backend wiring — student-runnable publish/discover commands will
+# pick these up from env automatically.
+export DNS_AID_BACKEND=route53
+export DNS_AID_ROUTE53_HOSTED_ZONE_ID="${HOSTED_ZONE_ID}"
+
+# Convenience symlink so the Editor tab (path: /root) shows the lab code.
+ln -sfn /opt/lab/IETF_Vienna /root/lab 2>/dev/null || true
 
 # ── 4. Persist env for check + solve scripts.
 echo "${SANDBOX_SLUG}" > /tmp/SANDBOX_SLUG
-printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|GOOGLE_|VERTEX_)=' > /tmp/sandbox.env
+printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|DNS_AID_|GOOGLE_|VERTEX_|AGENTS)=' > /tmp/sandbox.env
 
 # ── 5. Pull repo with lab code + Dockerfiles. Verbose so failures
 #       leave a clear trail. Always fresh-clone — cheaper than reconciling.

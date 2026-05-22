@@ -12,6 +12,7 @@ gcp_projects:
   - cloudasset.googleapis.com
   - cloudapis.googleapis.com
   - dns.googleapis.com
+  - aiplatform.googleapis.com
   regions:
   - europe-west3
   - europe-west2

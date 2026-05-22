@@ -1,0 +1,15 @@
+#!/bin/bash
+set -uo pipefail
+source /tmp/sandbox.env 2>/dev/null || true
+: "${SANDBOX_SLUG:?missing}"
+: "${ZONE:?missing}"
+
+NAME="_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}"
+RESULT=$(dig +short SVCB "${NAME}" @1.1.1.1 2>&1 || true)
+
+if [ -n "${RESULT}" ] && ! echo "${RESULT}" | grep -qi NXDOMAIN; then
+    echo "✓ ${NAME} resolves: ${RESULT}"
+    exit 0
+fi
+echo "ℹ ${NAME} not resolvable yet — run dns-aid publish (see assignment)"
+exit 1

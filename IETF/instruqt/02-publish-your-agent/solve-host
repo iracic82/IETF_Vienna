@@ -1,0 +1,13 @@
+#!/bin/bash
+# Auto-publish for testing (instruqt track test).
+set -uo pipefail
+source /tmp/sandbox.env
+dns-aid publish \
+    --name ip-reputation \
+    --domain "${SANDBOX_SLUG}.${ZONE}" \
+    --protocol mcp \
+    --endpoint "gw.${SANDBOX_SLUG}.${ZONE}" \
+    --port 3000 \
+    --capability ip-reputation \
+    --version 1.0.0 || true
+exit 0

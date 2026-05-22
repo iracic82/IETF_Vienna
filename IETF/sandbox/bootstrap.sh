@@ -1,38 +1,36 @@
 #!/usr/bin/env bash
-# IETF lab — sandbox bootstrap. Runs once on Instruqt sandbox start.
+# IETF lab — bring up containers only. DNS publishing is intentionally
+# left for the student to do via `dns-aid publish` in challenge 2.
 #
-# Order:
-#   1. Render CoreDNS config from templates.
-#   2. Register this sandbox's gateway IP + SVCB records in Route 53.
-#   3. docker compose up.
+# Required env (set by setup-host):
+#   SANDBOX_SLUG, ZONE, HOSTED_ZONE_ID, AWS_*, DNS_AID_BACKEND
 set -euo pipefail
 
-: "${SANDBOX_SLUG:?must be set by Instruqt random_id}"
-export ZONE="${ZONE:-workshop.highvelocitynetworking.com}"
-export AGENTS="ip-reputation"            # IETF lab uses ONE capability
+: "${SANDBOX_SLUG:?must be set}"
+: "${ZONE:?must be set}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SHARED="$(cd "${HERE}/../../shared" && pwd)"
 
-# 1. CoreDNS — we let it forward to public resolvers; no local hostname
-#    overrides needed for IETF (traffic to gw.${SLUG} can hairpin via VM IP).
-export AGENTGATEWAY_IP="0.0.0.0"   # unused in IETF; present for shared script
+# Render CoreDNS config (forwards to public; agent traffic stays in docker net).
+export AGENTGATEWAY_IP="0.0.0.0"
 "${SHARED}/coredns/render-corefile.sh" "${SHARED}/coredns/rendered"
 
-# 2. Route 53 — register gateway IP + SVCB for the one IETF agent.
-"${SHARED}/dns-seed/bootstrap.sh"
-
-# 3. Bring up containers.
+# Bring up containers. AGENTS only used by agentgateway to decide which
+# backends to route — independent of whether DNS records are published.
+export AGENTS="${AGENTS:-ip-reputation}"
 cd "${HERE}"
 docker compose up -d --build
 
 echo
-echo "── IETF sandbox up ────────────────────────────────────────────────"
-echo "  Subdomain: ${SANDBOX_SLUG}.${ZONE}"
-echo "  Gateway:   gw.${SANDBOX_SLUG}.${ZONE}  →  port 3000"
+echo "── IETF sandbox containers up ───────────────────────────────────"
+echo "  Subdomain:  ${SANDBOX_SLUG}.${ZONE}"
+echo "  Gateway:    http://localhost:3000"
 echo "  Visualizer: http://localhost:8080  (DNS-AID Explorer)"
 echo
-echo "Try it:"
-echo "  docker exec -it strands-agent python -m agent"
-echo "  > Is 185.220.101.45 malicious?"
-echo "────────────────────────────────────────────────────────────────────"
+echo "  DNS-AID records are NOT published yet — that's challenge 2."
+echo "  Source the env then run dns-aid publish:"
+echo "      source /tmp/sandbox.env"
+echo "      dns-aid publish -n ip-reputation -d \"\${SANDBOX_SLUG}.\${ZONE}\" \\"
+echo "          -p mcp -e \"gw.\${SANDBOX_SLUG}.\${ZONE}\" --port 3000"
+echo "─────────────────────────────────────────────────────────────────"

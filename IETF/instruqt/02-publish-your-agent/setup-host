@@ -1,0 +1,3 @@
+#!/bin/bash
+# Sandbox already up from challenge 1. Nothing to do.
+exit 0
