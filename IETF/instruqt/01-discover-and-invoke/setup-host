@@ -37,13 +37,13 @@ install_deps() {
     fi
 
     # dns-aid via the official PyPI package from infobloxopen/dns-aid-core.
-    # Installed into an isolated venv so we don't pollute system Python.
     export DNS_AID_VENV=/opt/dns-aid-venv
     if [ ! -x "${DNS_AID_VENV}/bin/dns-aid" ]; then
         echo "[setup] installing dns-aid CLI into ${DNS_AID_VENV}"
         python3 -m venv "${DNS_AID_VENV}"
-        "${DNS_AID_VENV}/bin/pip" install --quiet --upgrade pip
-        "${DNS_AID_VENV}/bin/pip" install --quiet "dns-aid>=0.13.0"
+        "${DNS_AID_VENV}/bin/pip" install --upgrade pip 2>&1 | tail -3
+        echo "[setup] pip install dns-aid (verbose)"
+        "${DNS_AID_VENV}/bin/pip" install "dns-aid>=0.13.0" 2>&1 | tail -10
     fi
 
     git --version 2>&1 | head -1
@@ -51,7 +51,17 @@ install_deps() {
     jq --version 2>&1 | head -1
     terraform version 2>&1 | head -1
     docker --version 2>&1 | head -1
-    "${DNS_AID_VENV}/bin/dns-aid" --version 2>&1 | head -1
+
+    # dns-aid sanity check — don't fail setup if it errors; just dump diagnostics.
+    echo "[setup] dns-aid sanity check:"
+    if ! "${DNS_AID_VENV}/bin/dns-aid" --version 2>&1; then
+        echo "[setup] WARN: dns-aid --version failed — showing diagnostics"
+        echo "[setup] python: $("${DNS_AID_VENV}/bin/python" --version 2>&1)"
+        echo "[setup] installed packages:"
+        "${DNS_AID_VENV}/bin/pip" list 2>&1 | head -40
+        echo "[setup] attempting import:"
+        "${DNS_AID_VENV}/bin/python" -c "import dns_aid; print(dns_aid.__file__)" 2>&1 || true
+    fi
 }
 install_deps
 
