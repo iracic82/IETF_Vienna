@@ -127,6 +127,20 @@ export ROUTE53_ZONE_ID="${HOSTED_ZONE_ID}"
 # Convenience symlink so the Editor tab (path: /root) shows the lab code.
 ln -sfn /opt/lab/IETF_Vienna /root/lab 2>/dev/null || true
 
+# Generate a per-sandbox EC P-256 signing key for JWS-signed cap docs.
+# dns-aid publish --sign --private-key <path> uses this to sign the
+# capability descriptor; consumers (discover) verify and surface the
+# signer kid in the audit trail.
+mkdir -p /opt/lab/keys
+SIGN_KEY="/opt/lab/keys/agent-signing.pem"
+SIGN_KID="k-${SANDBOX_SLUG}-2026"
+if [ ! -f "${SIGN_KEY}" ]; then
+    echo "[setup] generating EC P-256 signing key at ${SIGN_KEY} (kid=${SIGN_KID})"
+    openssl ecparam -name prime256v1 -genkey -noout -out "${SIGN_KEY}" 2>/dev/null
+    chmod 600 "${SIGN_KEY}"
+fi
+export SIGN_KEY SIGN_KID
+
 # ── 4. Persist env for check + solve scripts.
 echo "${SANDBOX_SLUG}" > /tmp/SANDBOX_SLUG
 
@@ -147,6 +161,8 @@ export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS}"
 export VERTEX_LOCATION="${VERTEX_LOCATION}"
 export DNS_AID_BACKEND="${DNS_AID_BACKEND}"
 export ROUTE53_ZONE_ID="${ROUTE53_ZONE_ID}"
+export SIGN_KEY="${SIGN_KEY}"
+export SIGN_KID="${SIGN_KID}"
 export PATH="${HOME}/.local/bin:/usr/local/bin:\$PATH"
 EOF
 chmod 600 /opt/lab/lab.env
