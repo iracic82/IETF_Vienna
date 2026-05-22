@@ -12,7 +12,7 @@ set -euo pipefail
 #       docker; we add git, awscli, jq, terraform, unzip, ca-certs.
 install_deps() {
     # apt: git, jq, curl, ca-certificates, unzip, python3-venv (for dns-aid).
-    local PKGS="git jq curl ca-certificates unzip python3 python3-venv python3-pip"
+    local PKGS="git jq curl ca-certificates unzip python3 python3-venv python3-pip dnsutils"
     echo "[setup] ensuring apt deps: $PKGS"
     apt-get update -qq || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS \
