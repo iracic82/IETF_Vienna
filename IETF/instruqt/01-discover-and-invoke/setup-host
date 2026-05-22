@@ -51,12 +51,12 @@ install_deps() {
     # dns-aid via `uv tool install` — official method per dns-aid-core repo.
     # Lands the binary in ~/.local/bin/dns-aid (uv tool dir) which we add to PATH.
     if ! command -v dns-aid >/dev/null 2>&1; then
-        echo "[setup] installing dns-aid via uv tool install (+ typer/boto3/rich)"
-        uv tool install dns-aid \
-            --with "typer>=0.12" \
-            --with "boto3>=1.34" \
-            --with "rich>=13" \
-            2>&1 | tail -15
+        echo "[setup] installing dns-aid[mcp,cli,route53] via uv tool install"
+        # Extras from dns-aid-core pyproject.toml:
+        #   cli      → typer + rich           (so `dns-aid <cmd>` works)
+        #   mcp      → mcp + uvicorn          (so the MCP server module loads)
+        #   route53  → boto3                   (so Route 53 backend works)
+        uv tool install 'dns-aid[mcp,cli,route53]' 2>&1 | tail -15
     fi
 
     git --version 2>&1 | head -1

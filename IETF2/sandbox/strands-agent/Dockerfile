@@ -5,8 +5,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     "strands-agents[litellm]>=0.1.0" \
     "litellm[vertex]>=1.50.0" \
-    "dns-aid>=0.13.0" \
-    "mcp>=1.0.0"
+    'dns-aid[mcp,cli,route53]>=0.13.0'
 
 ENV PYTHONPATH=/app
 COPY agent.py /app/agent.py
