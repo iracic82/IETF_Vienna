@@ -180,24 +180,24 @@ def _sanitize_schema(schema: dict) -> dict:
 # When Gemini emits a mangled or wrong endpoint, rewrite it to the
 # canonical agent path so dns-aid's call_agent_tool hits a real route.
 def _canonical_endpoint(raw: str | None, agent_name: str = "ip-reputation") -> str:
-    canonical = f"http://agentgateway:3000/{agent_name}"
+    # Gateway uses PATH routing /<agent>/mcp — dns-aid passes endpoint
+    # verbatim, no /mcp suffix added, so we include the full path here.
+    canonical = f"http://agentgateway:3000/{agent_name}/mcp"
     if not raw:
         return canonical
-    # If already canonical-shaped, keep it.
-    if raw.startswith(f"http://agentgateway:3000/{agent_name}"):
+    if raw == canonical:
         return raw
-    # Strip duplicate schemes: 'httpshttps://', 'https://https://', etc.
+    # Strip duplicate schemes.
     for prefix in ("httpshttps://", "https://https://", "http://http://"):
         if raw.startswith(prefix):
             raw = "http://" + raw[len(prefix):]
             break
-    # If host is the lab gateway alias or anything mentioning gw.<slug>,
-    # collapse to canonical agent path.
+    # If anything points at gw.<slug> or at agentgateway without the
+    # /<agent>/mcp suffix, snap to canonical.
     if "gw." in raw and ".iracictechguru.com" in raw:
         return canonical
-    if "agentgateway" in raw and f"/{agent_name}" not in raw:
+    if "agentgateway" in raw and not raw.endswith(f"/{agent_name}/mcp"):
         return canonical
-    # Force HTTP (gateway has no TLS).
     if raw.startswith("https://"):
         raw = "http://" + raw[len("https://"):]
     return raw
