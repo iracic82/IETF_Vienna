@@ -4,11 +4,20 @@ set -euo pipefail
 
 # ── 0. Install everything once. Idempotent.
 install_deps() {
-    local PKGS="git awscli jq curl ca-certificates unzip"
+    local PKGS="git jq curl ca-certificates unzip"
     echo "[setup] ensuring apt deps: $PKGS"
     apt-get update -qq || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS \
         || { echo "[setup] ERROR: apt install failed" >&2; exit 1; }
+
+    if ! command -v aws >/dev/null 2>&1; then
+        echo "[setup] installing AWS CLI v2"
+        curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+        unzip -qo /tmp/awscli.zip -d /tmp
+        /tmp/aws/install -i /usr/local/aws-cli -b /usr/local/bin
+        rm -rf /tmp/aws /tmp/awscli.zip
+    fi
+
     if ! command -v terraform >/dev/null 2>&1; then
         echo "[setup] installing terraform 1.10.0"
         local TF_VER=1.10.0
@@ -16,6 +25,7 @@ install_deps() {
         unzip -qo /tmp/tf.zip -d /usr/local/bin
         rm -f /tmp/tf.zip
     fi
+
     git --version 2>&1 | head -1
     aws --version 2>&1 | head -1
     jq --version 2>&1 | head -1
