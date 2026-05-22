@@ -32,8 +32,11 @@ def _build_model() -> LiteLLMModel:
         GOOGLE_CLOUD_PROJECT             vertex project
         VERTEX_LOCATION                  vertex region (default us-east5)
     """
+    # Default: Gemini 2.5 Pro — first-party Google model, available in every
+    # project without Model Garden enablement. Switch to claude-sonnet-4
+    # via VERTEX_MODEL env once Anthropic-on-Vertex is enabled per project.
     return LiteLLMModel(
-        model_id=os.getenv("VERTEX_MODEL", "vertex_ai/claude-sonnet-4@20250514"),
+        model_id=os.getenv("VERTEX_MODEL", "vertex_ai/gemini-2.5-pro"),
         client_args={
             "vertex_project": os.environ["GOOGLE_CLOUD_PROJECT"],
             "vertex_location": os.getenv("VERTEX_LOCATION", "us-east5"),
