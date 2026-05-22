@@ -119,7 +119,10 @@ export SANDBOX_SLUG
 # dns-aid backend wiring — student-runnable publish/discover commands will
 # pick these up from env automatically.
 export DNS_AID_BACKEND=route53
-export DNS_AID_ROUTE53_HOSTED_ZONE_ID="${HOSTED_ZONE_ID}"
+# dns-aid Route53Backend reads ROUTE53_ZONE_ID (verified in dns-aid v0.13
+# after we patch __init__ to honor it). Skips the ListHostedZones call
+# that the IAM user can't make.
+export ROUTE53_ZONE_ID="${HOSTED_ZONE_ID}"
 
 # Convenience symlink so the Editor tab (path: /root) shows the lab code.
 ln -sfn /opt/lab/IETF_Vienna /root/lab 2>/dev/null || true
@@ -143,7 +146,7 @@ export GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT}"
 export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS}"
 export VERTEX_LOCATION="${VERTEX_LOCATION}"
 export DNS_AID_BACKEND="${DNS_AID_BACKEND}"
-export DNS_AID_ROUTE53_HOSTED_ZONE_ID="${DNS_AID_ROUTE53_HOSTED_ZONE_ID}"
+export ROUTE53_ZONE_ID="${ROUTE53_ZONE_ID}"
 export PATH="${HOME}/.local/bin:/usr/local/bin:\$PATH"
 EOF
 chmod 600 /opt/lab/lab.env

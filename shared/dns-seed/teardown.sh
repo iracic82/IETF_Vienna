@@ -8,7 +8,7 @@ set -uo pipefail
 : "${ZONE:?must be set}"
 : "${HOSTED_ZONE_ID:?must be set}"
 export DNS_AID_BACKEND="${DNS_AID_BACKEND:-route53}"
-export DNS_AID_ROUTE53_HOSTED_ZONE_ID="${HOSTED_ZONE_ID}"
+export ROUTE53_ZONE_ID="${HOSTED_ZONE_ID}"
 
 SUBDOMAIN="${SANDBOX_SLUG}.${ZONE}"
 GW_HOST="gw.${SUBDOMAIN}"
