@@ -21,7 +21,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Standalone output bundles only what's needed.
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+# /app/public is optional — skip; we don't ship public assets in this app.
 
 EXPOSE 8080
 ENV PORT=8080
