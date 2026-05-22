@@ -41,7 +41,15 @@ if [ ! -d "${LAB_DIR}" ]; then
     git clone --depth 1 "${LAB_REPO_URL}" "${LAB_DIR}"
 fi
 
-which aws >/dev/null 2>&1 || { apt-get install -y --no-install-recommends awscli >/dev/null 2>&1 || pip3 install awscli >/dev/null 2>&1; }
+if ! command -v aws >/dev/null 2>&1; then
+    echo "[setup] installing awscli via apt..."
+    apt-get update -qq || true
+    apt-get install -y --no-install-recommends awscli || {
+        echo "[setup] ERROR: failed to install awscli" >&2
+        exit 1
+    }
+fi
+aws --version 2>&1 | head -1
 
 cd "${LAB_DIR}/IETF2/sandbox"
 bash bootstrap.sh

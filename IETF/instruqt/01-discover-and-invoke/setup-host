@@ -59,11 +59,16 @@ if [ ! -d "${LAB_DIR}" ]; then
     git clone --depth 1 "${LAB_REPO_URL}" "${LAB_DIR}"
 fi
 
-# ── 6. Ensure aws CLI is available.
-which aws >/dev/null 2>&1 || {
-    apt-get install -y --no-install-recommends awscli >/dev/null 2>&1 || \
-    pip3 install awscli >/dev/null 2>&1
-}
+# ── 6. Ensure aws CLI is available (docker-28-3 VM uses apt).
+if ! command -v aws >/dev/null 2>&1; then
+    echo "[setup] installing awscli via apt..."
+    apt-get update -qq || true
+    apt-get install -y --no-install-recommends awscli || {
+        echo "[setup] ERROR: failed to install awscli — bootstrap.sh will fail" >&2
+        exit 1
+    }
+fi
+aws --version 2>&1 | head -1
 
 # ── 7. Bring up the IETF stack.
 cd "${LAB_DIR}/IETF/sandbox"
