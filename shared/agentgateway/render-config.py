@@ -60,19 +60,39 @@ def mcp_route(slug: str) -> str:
 
 
 def cap_route(slug: str) -> str:
+    """Pattern B: gateway serves the cap doc inline via directResponse.
+
+    No upstream HTTP call — the cap-sha256 is byte-stable so the no-churn
+    property holds even if the FastMCP container restarts. Lab values are
+    hard-coded; in production you'd template per-agent metadata in.
+    """
+    import json as _json
+    cap_body = _json.dumps({
+        "agent": slug,
+        "version": "1.0.0",
+        "protocol": "mcp",
+        "transport": "streamable-http",
+        "capabilities": [slug],
+        "tools": [{"name": f"lookup_{slug.split('-')[0]}", "description": f"{slug} federation lookup"}],
+        "auth": {"type": "none", "note": "lab demo"},
+        "served_by": "agentgateway (Pattern B: inline directResponse)",
+    }, indent=2)
+    # Escape for YAML block scalar.
+    cap_indent = "\n              ".join(cap_body.splitlines())
     return f"""\
           - name: {slug}-cap-v1
             matches:
               - path:
                   exact: /{slug}/cap.json
             policies:
-              urlRewrite:
-                path:
-                  full: /agent-cap.json
               cors:
                 allowOrigins: ["*"]
-            backends:
-              - host: fastmcp-{slug}:3000
+              directResponse:
+                status: 200
+                headers:
+                  content-type: application/json
+                body: |
+                  {cap_indent}
 """
 
 
