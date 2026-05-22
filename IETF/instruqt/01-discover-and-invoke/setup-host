@@ -12,12 +12,10 @@ set -euo pipefail
 #       docker; we add git, awscli, jq, terraform, unzip, ca-certs.
 install_deps() {
     local PKGS="git awscli jq curl ca-certificates unzip"
-    if dpkg-query -W -f='${Status}' $PKGS 2>/dev/null | grep -qv "install ok installed"; then
-        echo "[setup] installing apt deps: $PKGS"
-        apt-get update -qq || true
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS \
-            || { echo "[setup] ERROR: apt install failed" >&2; exit 1; }
-    fi
+    echo "[setup] ensuring apt deps: $PKGS"
+    apt-get update -qq || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS \
+        || { echo "[setup] ERROR: apt install failed" >&2; exit 1; }
 
     if ! command -v terraform >/dev/null 2>&1; then
         echo "[setup] installing terraform 1.10.0"
