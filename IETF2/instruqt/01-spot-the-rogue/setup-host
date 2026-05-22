@@ -41,14 +41,23 @@ install_deps() {
         uv tool install 'dns-aid[mcp,cli,route53]' 2>&1 | tail -15
     fi
 
-    git --version 2>&1 | head -1
-    aws --version 2>&1 | head -1
-    jq --version 2>&1 | head -1
-    terraform version 2>&1 | head -1
-    docker --version 2>&1 | head -1
-    uv --version 2>&1 | head -1
+    # Patch dns-aid in-place to honor ROUTE53_ZONE_ID (workaround for v0.13).
+    R53_FILE=$(ls /root/.local/share/uv/tools/dns-aid/lib/python*/site-packages/dns_aid/backends/route53.py 2>/dev/null | head -1)
+    if [ -n "${R53_FILE}" ] && ! grep -q 'ROUTE53_ZONE_ID' "${R53_FILE}"; then
+        echo "[setup] patching ${R53_FILE} to honor ROUTE53_ZONE_ID"
+        sed -i 's|self._zone_id = zone_id$|self._zone_id = zone_id or os.environ.get("ROUTE53_ZONE_ID")|' "${R53_FILE}"
+    fi
+
+    set +o pipefail
+    git --version || true
+    aws --version || true
+    jq --version || true
+    terraform version || true
+    docker --version || true
+    uv --version || true
     echo "[setup] dns-aid binary: $(command -v dns-aid)"
-    dns-aid --version 2>&1 | head -3 || echo "[setup] WARN: dns-aid --version exit $?"
+    dns-aid --version || echo "[setup] WARN: dns-aid --version exit $?"
+    set -o pipefail
 }
 install_deps
 
