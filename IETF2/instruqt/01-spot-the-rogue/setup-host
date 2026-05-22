@@ -81,7 +81,8 @@ echo "[setup] GCP project: ${GOOGLE_CLOUD_PROJECT}"
 echo "[setup] GCP SA key:  ${GOOGLE_APPLICATION_CREDENTIALS} ($(wc -c < ${GOOGLE_APPLICATION_CREDENTIALS}) bytes)"
 
 echo "${SANDBOX_SLUG}" > /tmp/SANDBOX_SLUG
-printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|GOOGLE_|VERTEX_)=' > /tmp/sandbox.env
+printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|DNS_AID_|GOOGLE_|VERTEX_|AGENTS)=' \
+    | sed 's/^/export /' > /tmp/sandbox.env
 
 LAB_REPO_URL="${LAB_REPO_URL:-https://github.com/iracic82/IETF_Vienna.git}"
 LAB_DIR="/opt/lab/IETF_Vienna"

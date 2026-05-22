@@ -118,7 +118,11 @@ ln -sfn /opt/lab/IETF_Vienna /root/lab 2>/dev/null || true
 
 # ── 4. Persist env for check + solve scripts.
 echo "${SANDBOX_SLUG}" > /tmp/SANDBOX_SLUG
-printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|DNS_AID_|GOOGLE_|VERTEX_|AGENTS)=' > /tmp/sandbox.env
+# Emit env file with `export` prefixes so plain `source /tmp/sandbox.env`
+# pushes vars into subshells (docker-compose, dns-aid, etc.).
+printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|DNS_AID_|GOOGLE_|VERTEX_|AGENTS)=' \
+    | sed 's/^/export /' > /tmp/sandbox.env
+echo "[setup] /tmp/sandbox.env written ($(wc -l < /tmp/sandbox.env) vars)"
 
 # ── 5. Pull repo with lab code + Dockerfiles. Verbose so failures
 #       leave a clear trail. Always fresh-clone — cheaper than reconciling.
