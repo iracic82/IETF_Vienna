@@ -8,6 +8,33 @@
 # project name.
 set -euo pipefail
 
+# ── 0. Install everything once. Idempotent. docker-28-3 already ships
+#       docker; we add git, awscli, jq, terraform, unzip, ca-certs.
+install_deps() {
+    local PKGS="git awscli jq curl ca-certificates unzip"
+    if dpkg-query -W -f='${Status}' $PKGS 2>/dev/null | grep -qv "install ok installed"; then
+        echo "[setup] installing apt deps: $PKGS"
+        apt-get update -qq || true
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS \
+            || { echo "[setup] ERROR: apt install failed" >&2; exit 1; }
+    fi
+
+    if ! command -v terraform >/dev/null 2>&1; then
+        echo "[setup] installing terraform 1.10.0"
+        local TF_VER=1.10.0
+        curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VER}/terraform_${TF_VER}_linux_amd64.zip" -o /tmp/tf.zip
+        unzip -qo /tmp/tf.zip -d /usr/local/bin
+        rm -f /tmp/tf.zip
+    fi
+
+    git --version 2>&1 | head -1
+    aws --version 2>&1 | head -1
+    jq --version 2>&1 | head -1
+    terraform version 2>&1 | head -1
+    docker --version 2>&1 | head -1
+}
+install_deps
+
 # ── 1. Per-sandbox slug.
 SANDBOX_SLUG=$(echo -n "${INSTRUQT_PARTICIPANT_ID:-$(hostname)}" | sha1sum | cut -c1-8)
 echo "[setup] sandbox_slug=${SANDBOX_SLUG}"
@@ -52,23 +79,15 @@ printenv | grep -E '^(SANDBOX_SLUG|ZONE|AWS_|HOSTED_ZONE_ID|GOOGLE_|VERTEX_)=' >
 # ── 5. Pull repo with lab code + Dockerfiles.
 LAB_REPO_URL="${LAB_REPO_URL:-https://github.com/iracic82/IETF_Vienna.git}"
 LAB_DIR="/opt/lab/IETF_Vienna"
-if [ ! -d "${LAB_DIR}" ]; then
+if [ ! -d "${LAB_DIR}/.git" ]; then
     echo "[setup] cloning ${LAB_REPO_URL} → ${LAB_DIR}"
-    apt-get install -y --no-install-recommends git >/dev/null 2>&1 || true
+    rm -rf "${LAB_DIR}"
     mkdir -p /opt/lab
     git clone --depth 1 "${LAB_REPO_URL}" "${LAB_DIR}"
+else
+    echo "[setup] repo exists — pulling latest"
+    (cd "${LAB_DIR}" && git pull --ff-only) || true
 fi
-
-# ── 6. Ensure aws CLI is available (docker-28-3 VM uses apt).
-if ! command -v aws >/dev/null 2>&1; then
-    echo "[setup] installing awscli via apt..."
-    apt-get update -qq || true
-    apt-get install -y --no-install-recommends awscli || {
-        echo "[setup] ERROR: failed to install awscli — bootstrap.sh will fail" >&2
-        exit 1
-    }
-fi
-aws --version 2>&1 | head -1
 
 # ── 7. Bring up the IETF stack.
 cd "${LAB_DIR}/IETF/sandbox"
