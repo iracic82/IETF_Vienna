@@ -106,13 +106,54 @@ def mcp_tools_to_vertex(mcp_tools: list) -> Tool:
     return Tool(function_declarations=decls)
 
 
+_VERTEX_TYPES = {"string", "number", "integer", "boolean", "array", "object"}
+
+
 def _sanitize_schema(schema: dict) -> dict:
-    """Recursively strip JSON Schema fields Vertex doesn't accept."""
+    """Recursively normalize JSON Schema for Vertex Gemini.
+
+    Handles the things Vertex's Schema proto rejects:
+      - `type: "null"`  → drop (used by Pydantic Optional)
+      - `anyOf: [{type: X}, {type: "null"}]` → flatten to `type: X`
+        (nullability is expressed by absence from `required`)
+      - `$schema`, `$id`, `$ref`, `definitions`, `$defs`,
+        `additionalProperties` → strip (Vertex Schema doesn't model them)
+      - empty `object` → add a dummy property (Vertex requires at least one)
+    """
     if not isinstance(schema, dict):
         return schema
-    out = {}
+
+    # Special-case nullable union: anyOf/oneOf with exactly one non-null type
+    # → collapse to that type.
+    for union_key in ("anyOf", "oneOf"):
+        if union_key in schema and isinstance(schema[union_key], list):
+            non_null = [
+                s for s in schema[union_key]
+                if not (isinstance(s, dict) and s.get("type") == "null")
+            ]
+            if len(non_null) == 1:
+                # Replace the whole union with the single non-null variant +
+                # merge any sibling keys (description, etc).
+                merged = {k: v for k, v in schema.items() if k not in ("anyOf", "oneOf")}
+                merged.update(non_null[0])
+                return _sanitize_schema(merged)
+            if not non_null:
+                # All variants were null → degenerate; treat as a string.
+                return {"type": "string", "description": schema.get("description", "")}
+            # Multiple non-null variants → Vertex doesn't really support
+            # discriminated unions; pick the first non-null variant.
+            merged = {k: v for k, v in schema.items() if k not in ("anyOf", "oneOf")}
+            merged.update(non_null[0])
+            return _sanitize_schema(merged)
+
+    # Skip type: null at any level.
+    if schema.get("type") == "null":
+        return {"type": "string"}
+
+    out: dict = {}
     for k, v in schema.items():
-        if k in ("$schema", "$id", "$ref", "definitions", "$defs", "additionalProperties"):
+        if k in ("$schema", "$id", "$ref", "definitions", "$defs",
+                 "additionalProperties", "title", "default", "examples"):
             continue
         if k == "properties" and isinstance(v, dict):
             out[k] = {pk: _sanitize_schema(pv) for pk, pv in v.items()}
@@ -122,6 +163,11 @@ def _sanitize_schema(schema: dict) -> dict:
             out[k] = [_sanitize_schema(x) if isinstance(x, dict) else x for x in v]
         else:
             out[k] = v
+
+    # Drop type strings Vertex doesn't recognize.
+    if "type" in out and out["type"] not in _VERTEX_TYPES:
+        out["type"] = "string"
+
     # Vertex requires object types to have non-empty properties.
     if out.get("type") == "object" and not out.get("properties"):
         out["properties"] = {"_unused": {"type": "string"}}
