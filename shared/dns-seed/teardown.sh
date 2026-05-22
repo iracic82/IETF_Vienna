@@ -1,20 +1,42 @@
 #!/usr/bin/env bash
-# Sandbox teardown — remove this sandbox's records from Route 53. Runs once
-# on sandbox stop. Idempotent (won't fail on already-deleted records when
-# wrapped in trap || true at the caller).
-set -euo pipefail
+# Remove this sandbox's DNS-AID records via dns-aid CLI + remove the
+# gateway A record via aws. Best-effort.
+set -uo pipefail
 
-GATEWAY_IP=$(curl -s -H "Metadata-Flavor: Google" \
-    "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip" \
-    || echo "0.0.0.0")
-export GATEWAY_IP
+: "${SANDBOX_SLUG:?must be set}"
+: "${AGENTS:?must be set}"
+: "${ZONE:?must be set}"
+: "${HOSTED_ZONE_ID:?must be set}"
+export DNS_AID_BACKEND="${DNS_AID_BACKEND:-route53}"
+export DNS_AID_ROUTE53_HOSTED_ZONE_ID="${HOSTED_ZONE_ID}"
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
-export ACTION=DELETE
-python3 "${HERE}/render-records.py" | \
-    aws route53 change-resource-record-sets \
-        --hosted-zone-id "${HOSTED_ZONE_ID}" \
-        --change-batch file:///dev/stdin \
-        || true
+SUBDOMAIN="${SANDBOX_SLUG}.${ZONE}"
+GW_HOST="gw.${SUBDOMAIN}"
+DNS_AID="${DNS_AID_VENV:-/opt/dns-aid-venv}/bin/dns-aid"
 
-echo "[teardown] sandbox=${SANDBOX_SLUG} records deleted (best-effort)."
+IFS=',' read -ra AGENT_LIST <<< "${AGENTS}"
+for agent in "${AGENT_LIST[@]}"; do
+    agent="${agent// /}"
+    [ -z "${agent}" ] && continue
+    "${DNS_AID}" delete --name "${agent}" --domain "${SUBDOMAIN}" --protocol mcp || true
+done
+
+# Best-effort A record cleanup.
+aws route53 change-resource-record-sets \
+    --hosted-zone-id "${HOSTED_ZONE_ID}" \
+    --change-batch "$(cat <<EOF
+{
+  "Changes": [{
+    "Action": "DELETE",
+    "ResourceRecordSet": {
+      "Name": "${GW_HOST}.",
+      "Type": "A",
+      "TTL": 60,
+      "ResourceRecords": [{"Value": "0.0.0.0"}]
+    }
+  }]
+}
+EOF
+)" >/dev/null 2>&1 || true
+
+echo "[teardown] sandbox=${SANDBOX_SLUG} records removed (best-effort)."

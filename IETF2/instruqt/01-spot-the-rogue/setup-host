@@ -4,7 +4,7 @@ set -euo pipefail
 
 # ── 0. Install everything once. Idempotent.
 install_deps() {
-    local PKGS="git jq curl ca-certificates unzip"
+    local PKGS="git jq curl ca-certificates unzip python3 python3-venv python3-pip"
     echo "[setup] ensuring apt deps: $PKGS"
     apt-get update -qq || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS \
@@ -26,11 +26,20 @@ install_deps() {
         rm -f /tmp/tf.zip
     fi
 
+    export DNS_AID_VENV=/opt/dns-aid-venv
+    if [ ! -x "${DNS_AID_VENV}/bin/dns-aid" ]; then
+        echo "[setup] installing dns-aid CLI into ${DNS_AID_VENV}"
+        python3 -m venv "${DNS_AID_VENV}"
+        "${DNS_AID_VENV}/bin/pip" install --quiet --upgrade pip
+        "${DNS_AID_VENV}/bin/pip" install --quiet "dns-aid>=0.13.0"
+    fi
+
     git --version 2>&1 | head -1
     aws --version 2>&1 | head -1
     jq --version 2>&1 | head -1
     terraform version 2>&1 | head -1
     docker --version 2>&1 | head -1
+    "${DNS_AID_VENV}/bin/dns-aid" --version 2>&1 | head -1
 }
 install_deps
 

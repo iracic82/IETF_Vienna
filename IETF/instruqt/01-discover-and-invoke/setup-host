@@ -11,9 +11,8 @@ set -euo pipefail
 # ── 0. Install everything once. Idempotent. docker-28-3 already ships
 #       docker; we add git, awscli, jq, terraform, unzip, ca-certs.
 install_deps() {
-    # apt: git, jq, curl, ca-certificates, unzip (awscli dropped — Ubuntu 24.04
-    # noble removed it from apt; AWS only ships v2 via their bundle now).
-    local PKGS="git jq curl ca-certificates unzip"
+    # apt: git, jq, curl, ca-certificates, unzip, python3-venv (for dns-aid).
+    local PKGS="git jq curl ca-certificates unzip python3 python3-venv python3-pip"
     echo "[setup] ensuring apt deps: $PKGS"
     apt-get update -qq || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS \
@@ -37,11 +36,22 @@ install_deps() {
         rm -f /tmp/tf.zip
     fi
 
+    # dns-aid via the official PyPI package from infobloxopen/dns-aid-core.
+    # Installed into an isolated venv so we don't pollute system Python.
+    export DNS_AID_VENV=/opt/dns-aid-venv
+    if [ ! -x "${DNS_AID_VENV}/bin/dns-aid" ]; then
+        echo "[setup] installing dns-aid CLI into ${DNS_AID_VENV}"
+        python3 -m venv "${DNS_AID_VENV}"
+        "${DNS_AID_VENV}/bin/pip" install --quiet --upgrade pip
+        "${DNS_AID_VENV}/bin/pip" install --quiet "dns-aid>=0.13.0"
+    fi
+
     git --version 2>&1 | head -1
     aws --version 2>&1 | head -1
     jq --version 2>&1 | head -1
     terraform version 2>&1 | head -1
     docker --version 2>&1 | head -1
+    "${DNS_AID_VENV}/bin/dns-aid" --version 2>&1 | head -1
 }
 install_deps
 
