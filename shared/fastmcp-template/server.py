@@ -217,6 +217,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/healthz":
             self._write_json(200, {"ok": True, "name": NAME, "ts": time.time()})
+        elif self.path == "/mcp":
+            # MCP Streamable HTTP optional SSE channel. We don't push
+            # server-initiated messages, so return 204 No Content — the
+            # client treats this as "no events to stream right now."
+            self.send_response(204)
+            self.end_headers()
+        else:
+            self._write_json(404, {"error": "not_found", "path": self.path})
+
+    def do_DELETE(self):
+        # Streamable HTTP session termination — accept and return empty 202.
+        if self.path == "/mcp":
+            self.send_response(202)
+            self.end_headers()
         else:
             self._write_json(404, {"error": "not_found", "path": self.path})
 
@@ -236,6 +250,12 @@ class Handler(BaseHTTPRequestHandler):
         method = req.get("method")
         req_id = req.get("id")
         params = req.get("params") or {}
+
+        # MCP notifications (no `id`) MUST return 202 Accepted with empty body.
+        if req_id is None and method and method.startswith("notifications/"):
+            self.send_response(202)
+            self.end_headers()
+            return
 
         if method == "initialize":
             session_id = str(uuid.uuid4())
