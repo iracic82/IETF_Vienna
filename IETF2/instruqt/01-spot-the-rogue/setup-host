@@ -83,8 +83,8 @@ if [ ! -f "${EXPECTED}" ]; then
     exit 1
 fi
 
-cd "${LAB_DIR}/IETF2/sandbox"
-bash bootstrap.sh
+echo "[setup] invoking ${EXPECTED}"
+bash "${EXPECTED}"
 
 for _ in $(seq 1 30); do
     if curl -sf http://localhost:8888/healthz >/dev/null 2>&1; then break; fi

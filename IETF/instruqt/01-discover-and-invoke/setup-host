@@ -108,10 +108,10 @@ if [ ! -f "${EXPECTED}" ]; then
 fi
 echo "[setup] found ${EXPECTED}"
 
-# ── 7. Bring up the IETF stack.
-cd "${LAB_DIR}/IETF/sandbox"
-echo "[setup] pwd before bootstrap: $(pwd)"
-bash bootstrap.sh
+# ── 7. Bring up the IETF stack. Use absolute path — relative resolution
+#       has been flaky (suspected Instruqt script-wrapper interaction).
+echo "[setup] invoking ${EXPECTED}"
+bash "${EXPECTED}"
 
 # ── 8. Wait for services.
 for _ in $(seq 1 30); do
