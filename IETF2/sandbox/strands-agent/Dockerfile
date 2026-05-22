@@ -5,6 +5,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     "strands-agents[litellm]>=0.1.0" \
     "litellm[vertex]>=1.50.0" \
+    "google-cloud-aiplatform>=1.38" \
     'dns-aid[mcp,cli,route53]>=0.13.0'
 
 ENV PYTHONPATH=/app
