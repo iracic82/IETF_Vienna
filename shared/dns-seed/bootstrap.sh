@@ -41,14 +41,15 @@ echo "[bootstrap] sandbox=${SANDBOX_SLUG}  ip=${GATEWAY_IP}  agents=${AGENTS}"
 echo "[bootstrap] subdomain=${SUBDOMAIN}"
 echo "[bootstrap] dns-aid backend=${DNS_AID_BACKEND}"
 
-# ── Ensure dns-aid CLI is available. ─────────────────────────────────
-DNS_AID="${DNS_AID_VENV:-/opt/dns-aid-venv}/bin/dns-aid"
-if [ ! -x "${DNS_AID}" ]; then
-    echo "[bootstrap] ERROR: dns-aid CLI not found at ${DNS_AID}" >&2
-    echo "[bootstrap] setup-host should have created the venv and installed dns-aid." >&2
+# ── Ensure dns-aid CLI is available (installed via uv tool install). ─
+export PATH="${HOME}/.local/bin:/usr/local/bin:${PATH}"
+if ! command -v dns-aid >/dev/null 2>&1; then
+    echo "[bootstrap] ERROR: dns-aid CLI not found on PATH" >&2
+    echo "[bootstrap] setup-host should have installed it via 'uv tool install dns-aid'." >&2
     exit 1
 fi
-"${DNS_AID}" --version 2>&1 | head -1
+DNS_AID=$(command -v dns-aid)
+"${DNS_AID}" --version 2>&1 | head -3 || true
 
 # ── Publish the gateway A record first via aws (dns-aid publish doesn't
 #     manage simple A records — only DNS-AID-format SVCB/TXT records).

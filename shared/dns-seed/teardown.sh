@@ -12,7 +12,8 @@ export DNS_AID_ROUTE53_HOSTED_ZONE_ID="${HOSTED_ZONE_ID}"
 
 SUBDOMAIN="${SANDBOX_SLUG}.${ZONE}"
 GW_HOST="gw.${SUBDOMAIN}"
-DNS_AID="${DNS_AID_VENV:-/opt/dns-aid-venv}/bin/dns-aid"
+export PATH="${HOME}/.local/bin:/usr/local/bin:${PATH}"
+DNS_AID=$(command -v dns-aid 2>/dev/null || echo "dns-aid")
 
 IFS=',' read -ra AGENT_LIST <<< "${AGENTS}"
 for agent in "${AGENT_LIST[@]}"; do

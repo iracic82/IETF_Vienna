@@ -36,14 +36,23 @@ install_deps() {
         rm -f /tmp/tf.zip
     fi
 
-    # dns-aid via the official PyPI package from infobloxopen/dns-aid-core.
-    export DNS_AID_VENV=/opt/dns-aid-venv
-    if [ ! -x "${DNS_AID_VENV}/bin/dns-aid" ]; then
-        echo "[setup] installing dns-aid CLI into ${DNS_AID_VENV}"
-        python3 -m venv "${DNS_AID_VENV}"
-        "${DNS_AID_VENV}/bin/pip" install --upgrade pip 2>&1 | tail -3
-        echo "[setup] pip install dns-aid (verbose)"
-        "${DNS_AID_VENV}/bin/pip" install "dns-aid>=0.13.0" 2>&1 | tail -10
+    # uv — fast Python package manager from Astral. Used as the canonical
+    # installer for dns-aid (matches the dns-aid-core repo conventions).
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "[setup] installing uv"
+        curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh 2>&1 | tail -5 || true
+        # uv installer may also drop into ~/.local/bin — symlink for PATH coverage.
+        if [ ! -x /usr/local/bin/uv ] && [ -x "${HOME}/.local/bin/uv" ]; then
+            ln -sf "${HOME}/.local/bin/uv" /usr/local/bin/uv
+        fi
+    fi
+    export PATH="${HOME}/.local/bin:/usr/local/bin:${PATH}"
+
+    # dns-aid via `uv tool install` — official method per dns-aid-core repo.
+    # Lands the binary in ~/.local/bin/dns-aid (uv tool dir) which we add to PATH.
+    if ! command -v dns-aid >/dev/null 2>&1; then
+        echo "[setup] installing dns-aid via uv tool install"
+        uv tool install dns-aid 2>&1 | tail -10
     fi
 
     git --version 2>&1 | head -1
@@ -51,17 +60,9 @@ install_deps() {
     jq --version 2>&1 | head -1
     terraform version 2>&1 | head -1
     docker --version 2>&1 | head -1
-
-    # dns-aid sanity check — don't fail setup if it errors; just dump diagnostics.
-    echo "[setup] dns-aid sanity check:"
-    if ! "${DNS_AID_VENV}/bin/dns-aid" --version 2>&1; then
-        echo "[setup] WARN: dns-aid --version failed — showing diagnostics"
-        echo "[setup] python: $("${DNS_AID_VENV}/bin/python" --version 2>&1)"
-        echo "[setup] installed packages:"
-        "${DNS_AID_VENV}/bin/pip" list 2>&1 | head -40
-        echo "[setup] attempting import:"
-        "${DNS_AID_VENV}/bin/python" -c "import dns_aid; print(dns_aid.__file__)" 2>&1 || true
-    fi
+    uv --version 2>&1 | head -1
+    echo "[setup] dns-aid binary: $(command -v dns-aid)"
+    dns-aid --version 2>&1 | head -3 || echo "[setup] WARN: dns-aid --version exit $?"
 }
 install_deps
 

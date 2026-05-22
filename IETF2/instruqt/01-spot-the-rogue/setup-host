@@ -26,12 +26,19 @@ install_deps() {
         rm -f /tmp/tf.zip
     fi
 
-    export DNS_AID_VENV=/opt/dns-aid-venv
-    if [ ! -x "${DNS_AID_VENV}/bin/dns-aid" ]; then
-        echo "[setup] installing dns-aid CLI into ${DNS_AID_VENV}"
-        python3 -m venv "${DNS_AID_VENV}"
-        "${DNS_AID_VENV}/bin/pip" install --upgrade pip 2>&1 | tail -3
-        "${DNS_AID_VENV}/bin/pip" install "dns-aid>=0.13.0" 2>&1 | tail -10
+    # uv + dns-aid (official install method).
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "[setup] installing uv"
+        curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh 2>&1 | tail -5 || true
+        if [ ! -x /usr/local/bin/uv ] && [ -x "${HOME}/.local/bin/uv" ]; then
+            ln -sf "${HOME}/.local/bin/uv" /usr/local/bin/uv
+        fi
+    fi
+    export PATH="${HOME}/.local/bin:/usr/local/bin:${PATH}"
+
+    if ! command -v dns-aid >/dev/null 2>&1; then
+        echo "[setup] installing dns-aid via uv tool install"
+        uv tool install dns-aid 2>&1 | tail -10
     fi
 
     git --version 2>&1 | head -1
@@ -39,11 +46,9 @@ install_deps() {
     jq --version 2>&1 | head -1
     terraform version 2>&1 | head -1
     docker --version 2>&1 | head -1
-    if ! "${DNS_AID_VENV}/bin/dns-aid" --version 2>&1; then
-        echo "[setup] WARN: dns-aid --version failed — showing diagnostics"
-        "${DNS_AID_VENV}/bin/pip" list 2>&1 | head -40
-        "${DNS_AID_VENV}/bin/python" -c "import dns_aid; print(dns_aid.__file__)" 2>&1 || true
-    fi
+    uv --version 2>&1 | head -1
+    echo "[setup] dns-aid binary: $(command -v dns-aid)"
+    dns-aid --version 2>&1 | head -3 || echo "[setup] WARN: dns-aid --version exit $?"
 }
 install_deps
 
