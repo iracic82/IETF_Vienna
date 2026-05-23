@@ -2,6 +2,10 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
+# dig — the agent uses it to verify the AD flag (DNSSEC) for the audit chain.
+RUN apt-get update && apt-get install -y --no-install-recommends dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
 # Vertex AI SDK + dns-aid MCP client.
 # Strands/LiteLLM are kept only because shared/strands_dnsaid imports
 # from them at module-load time (harmless even though we don't use Strands).
