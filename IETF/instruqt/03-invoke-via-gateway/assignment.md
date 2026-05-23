@@ -162,44 +162,40 @@ SVCB target field from your DNS-AID record**, materialized as a
 gateway-facing backend. Trace it: `dig SVCB ...` → SVCB target →
 translator → backend in this UI.
 
-### Playground
+### Playground (currently broken on xDS-bound routes)
 
-Interactive HTTP request tester. Set up like this (paste each value as
-plain text — **no markdown backticks**):
+The Playground tab is meant to let you test routes interactively, but
+it's broken when routes are pushed via xDS — the UI derives its
+request URL from the bind host (`0.0.0.0` → displayed as `*`), and
+the browser rejects `http://*:3000/...` as `Invalid name`. Skip it.
 
-- **HTTP Method:** `POST`
-- **Request Path:** `/ip-reputation/mcp`
-- **Headers tab (Add each as Name + Value):**
-  - `content-type` → `application/json`
-  - `accept` → `application/json, text/event-stream`
-  - `mcp-protocol-version` → `2025-03-26`
-- **Body tab** — paste this as a single line, no backticks, no
-  language tag, just the JSON:
+### Use curl from the Terminal tab instead
 
-```
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"playground","version":"0"}}}
-```
-
-Hit **Send**. The request will reach the gateway, but the **browser
-will likely block the response** with a "Network Error" — this is CORS:
-the UI runs on `:15000` and calls `:3000`, two different origins, and
-the xDS-pushed route doesn't carry a CORS policy.
-
-To prove the round trip works, use **curl from the Terminal tab**
-instead — same request, no CORS enforcement:
+Same round trip the AI agent uses, no broken UI:
 
 ```bash
+# 1. MCP initialize — proves the route works end-to-end
 curl -sw '\nHTTP %{http_code}\n' \
     -X POST http://localhost:3000/ip-reputation/mcp \
     -H 'content-type: application/json' \
     -H 'accept: application/json, text/event-stream' \
     -H 'mcp-protocol-version: 2025-03-26' \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+
+# 2. Real tool call — get a verdict for a known-bad IP
+curl -s \
+    -X POST http://localhost:3000/ip-reputation/mcp \
+    -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' \
+    -H 'mcp-protocol-version: 2025-03-26' \
+    -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lookup_ip","arguments":{"ip":"185.220.101.45"}}}' \
+    | python3 -m json.tool
 ```
 
-You'll get a 200 with the MCP server's `serverInfo`. That's the same
-round trip the AI agent uses — DNS publish → translator → xDS → gateway
-→ backend → MCP response.
+The second call returns the same verdict object the AI agent gets in C3
+(`verdict: malicious, confidence: 0.95, sources: tor-exit-list, abuse.ch`).
+This proves the DNS publish → translator → xDS → gateway → backend
+round trip works without any AI involved.
 
 ### CEL Playground (foreshadowing)
 
