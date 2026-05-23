@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json",
+  "version": "1.0",
+  "protocolVersion": "2025-06-18",
+  "serverInfo": {
+    "name": "url-scanner",
+    "title": "URL Phishing / Malware Scanner",
+    "version": "1.0.0"
+  },
+  "description": "Submit a URL for phishing and malware detection. Returns clean/suspicious/malicious with detector attribution.",
+  "documentationUrl": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/url-scanner/README.md",
+  "transport": {
+    "type": "streamable-http",
+    "endpoint": "/mcp"
+  },
+  "capabilities": {
+    "tools": {
+      "listChanged": false
+    }
+  },
+  "authentication": {
+    "required": false,
+    "schemes": []
+  },
+  "instructions": "tools/call with name=scan_url and arguments matching the inputSchema.",
+  "tools": [
+    {
+      "name": "scan_url",
+      "description": "Scan a URL for phishing or malware indicators.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL incl. scheme"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  ]
+}

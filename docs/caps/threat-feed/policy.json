@@ -1,6 +1,6 @@
 {
   "policy_version": "1.0",
-  "agent": "ip-reputation",
+  "agent": "threat-feed",
   "issued_at": "2026-05-23T00:00:00Z",
   "issuer": {
     "organization": "IETF_Vienna Demo Federation",
@@ -31,6 +31,6 @@
   },
   "governance": {
     "owner_contact": "soc-federation@workshop.highvelocitynetworking.com",
-    "incident_response_runbook": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/ip-reputation/INCIDENT-RUNBOOK.md"
+    "incident_response_runbook": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/threat-feed/INCIDENT-RUNBOOK.md"
   }
 }

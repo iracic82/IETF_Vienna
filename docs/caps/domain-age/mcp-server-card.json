@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json",
+  "version": "1.0",
+  "protocolVersion": "2025-06-18",
+  "serverInfo": {
+    "name": "domain-age",
+    "title": "Domain Age + Registration",
+    "version": "1.0.0"
+  },
+  "description": "First-seen date and registrar metadata for a domain.",
+  "documentationUrl": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/domain-age/README.md",
+  "transport": {
+    "type": "streamable-http",
+    "endpoint": "/mcp"
+  },
+  "capabilities": {
+    "tools": {
+      "listChanged": false
+    }
+  },
+  "authentication": {
+    "required": false,
+    "schemes": []
+  },
+  "instructions": "tools/call with name=lookup_domain and arguments matching the inputSchema.",
+  "tools": [
+    {
+      "name": "lookup_domain",
+      "description": "Return registration metadata for a domain.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    }
+  ]
+}

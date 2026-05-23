@@ -1,4 +1,4 @@
-# ip-reputation — DNS-AID cap docs
+# domain-age — DNS-AID cap docs
 
 **MCP server** (Streamable HTTP). Three documents:
 
@@ -10,9 +10,9 @@
 
 Hosted at:
 ```
-https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json
-https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/mcp-server-card.json
-https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json
+https://ietf-vienna-cap-docs.s3.amazonaws.com/domain-age/v1.json
+https://ietf-vienna-cap-docs.s3.amazonaws.com/domain-age/mcp-server-card.json
+https://ietf-vienna-cap-docs.s3.amazonaws.com/domain-age/policy.json
 ```
 
-Tool exposed: `lookup_ip` — Return federation reputation verdict for an IPv4 address.
+Tool exposed: `lookup_domain` — Return registration metadata for a domain.

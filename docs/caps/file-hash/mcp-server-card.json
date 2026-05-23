@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json",
+  "version": "1.0",
+  "protocolVersion": "2025-06-18",
+  "serverInfo": {
+    "name": "file-hash",
+    "title": "File Hash Reputation",
+    "version": "1.0.0"
+  },
+  "description": "Look up a SHA-256 file hash against the federation malware corpus.",
+  "documentationUrl": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/file-hash/README.md",
+  "transport": {
+    "type": "streamable-http",
+    "endpoint": "/mcp"
+  },
+  "capabilities": {
+    "tools": {
+      "listChanged": false
+    }
+  },
+  "authentication": {
+    "required": false,
+    "schemes": []
+  },
+  "instructions": "tools/call with name=lookup_hash and arguments matching the inputSchema.",
+  "tools": [
+    {
+      "name": "lookup_hash",
+      "description": "Return verdict for a SHA-256 file hash.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "description": "64-char hex SHA-256"
+          }
+        },
+        "required": [
+          "sha256"
+        ]
+      }
+    }
+  ]
+}

@@ -1,31 +1,31 @@
 {
   "$schema": "https://iracic82.github.io/IETF_Vienna/schemas/dns-aid-cap/v1.json",
   "spec_version": "1.0",
-  "agent": "ip-reputation",
+  "agent": "url-scanner",
   "version": "1.0.0",
   "protocol": "mcp",
   "transport": "streamable-http",
   "served_by": "https://ietf-vienna-cap-docs.s3.amazonaws.com (S3 public bucket, public-read)",
-  "mcp_server_card": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/mcp-server-card.json",
-  "policy": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json",
-  "policy_uri": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json",
+  "mcp_server_card": "https://ietf-vienna-cap-docs.s3.amazonaws.com/url-scanner/mcp-server-card.json",
+  "policy": "https://ietf-vienna-cap-docs.s3.amazonaws.com/url-scanner/policy.json",
+  "policy_uri": "https://ietf-vienna-cap-docs.s3.amazonaws.com/url-scanner/policy.json",
   "capabilities": [
-    "ip-reputation"
+    "url-scanner"
   ],
   "tools": [
     {
-      "name": "lookup_ip",
-      "description": "Return federation reputation verdict for an IPv4 address.",
+      "name": "scan_url",
+      "description": "Scan a URL for phishing or malware indicators.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "ip": {
+          "url": {
             "type": "string",
-            "description": "IPv4 address"
+            "description": "Full URL incl. scheme"
           }
         },
         "required": [
-          "ip"
+          "url"
         ]
       }
     }

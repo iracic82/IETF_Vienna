@@ -1,31 +1,31 @@
 {
   "$schema": "https://iracic82.github.io/IETF_Vienna/schemas/dns-aid-cap/v1.json",
   "spec_version": "1.0",
-  "agent": "ip-reputation",
+  "agent": "file-hash",
   "version": "1.0.0",
   "protocol": "mcp",
   "transport": "streamable-http",
   "served_by": "https://ietf-vienna-cap-docs.s3.amazonaws.com (S3 public bucket, public-read)",
-  "mcp_server_card": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/mcp-server-card.json",
-  "policy": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json",
-  "policy_uri": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json",
+  "mcp_server_card": "https://ietf-vienna-cap-docs.s3.amazonaws.com/file-hash/mcp-server-card.json",
+  "policy": "https://ietf-vienna-cap-docs.s3.amazonaws.com/file-hash/policy.json",
+  "policy_uri": "https://ietf-vienna-cap-docs.s3.amazonaws.com/file-hash/policy.json",
   "capabilities": [
-    "ip-reputation"
+    "file-hash"
   ],
   "tools": [
     {
-      "name": "lookup_ip",
-      "description": "Return federation reputation verdict for an IPv4 address.",
+      "name": "lookup_hash",
+      "description": "Return verdict for a SHA-256 file hash.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "ip": {
+          "sha256": {
             "type": "string",
-            "description": "IPv4 address"
+            "description": "64-char hex SHA-256"
           }
         },
         "required": [
-          "ip"
+          "sha256"
         ]
       }
     }

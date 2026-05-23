@@ -3,12 +3,12 @@
   "version": "1.0",
   "protocolVersion": "2025-06-18",
   "serverInfo": {
-    "name": "ip-reputation",
-    "title": "IP Reputation Threat-Intel Lookup",
+    "name": "asn-info",
+    "title": "ASN / Geo / ISP Lookup",
     "version": "1.0.0"
   },
-  "description": "Federated threat-intelligence service: query a known-bad IP database and return verdict, confidence, and source attribution.",
-  "documentationUrl": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/ip-reputation/README.md",
+  "description": "ASN ownership, country, ISP for an IP address.",
+  "documentationUrl": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/asn-info/README.md",
   "transport": {
     "type": "streamable-http",
     "endpoint": "/mcp"
@@ -22,17 +22,16 @@
     "required": false,
     "schemes": []
   },
-  "instructions": "tools/call with name=lookup_ip and arguments matching the inputSchema.",
+  "instructions": "tools/call with name=lookup_asn and arguments matching the inputSchema.",
   "tools": [
     {
-      "name": "lookup_ip",
-      "description": "Return federation reputation verdict for an IPv4 address.",
+      "name": "lookup_asn",
+      "description": "Return ASN + country + ISP for an IP.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "ip": {
-            "type": "string",
-            "description": "IPv4 address"
+            "type": "string"
           }
         },
         "required": [

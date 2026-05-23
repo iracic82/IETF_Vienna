@@ -3,7 +3,8 @@ slug: publish-your-agent
 id: 2kfzxpqcouix
 type: challenge
 title: 2. Publish your federation capability (signed + externally hosted cap)
-teaser: Sign and publish the ip-reputation DNS-AID record. Cap doc + MCP server card live in a public S3 bucket.
+teaser: Sign and publish the ip-reputation DNS-AID record. Cap doc + MCP server card
+  live in a public S3 bucket.
 notes:
 - type: text
   contents: |-

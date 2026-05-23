@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json",
+  "version": "1.0",
+  "protocolVersion": "2025-06-18",
+  "serverInfo": {
+    "name": "passive-dns",
+    "title": "Passive DNS History",
+    "version": "1.0.0"
+  },
+  "description": "Historical IP resolutions for a domain (passive DNS replication).",
+  "documentationUrl": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/passive-dns/README.md",
+  "transport": {
+    "type": "streamable-http",
+    "endpoint": "/mcp"
+  },
+  "capabilities": {
+    "tools": {
+      "listChanged": false
+    }
+  },
+  "authentication": {
+    "required": false,
+    "schemes": []
+  },
+  "instructions": "tools/call with name=lookup_pdns and arguments matching the inputSchema.",
+  "tools": [
+    {
+      "name": "lookup_pdns",
+      "description": "Return historical IP resolutions for a domain.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    }
+  ]
+}

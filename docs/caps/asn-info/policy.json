@@ -1,6 +1,6 @@
 {
   "policy_version": "1.0",
-  "agent": "ip-reputation",
+  "agent": "asn-info",
   "issued_at": "2026-05-23T00:00:00Z",
   "issuer": {
     "organization": "IETF_Vienna Demo Federation",
@@ -12,7 +12,7 @@
     "tools/call"
   ],
   "allowed_tools": [
-    "lookup_ip"
+    "lookup_asn"
   ],
   "rate_limits": {
     "requests_per_minute": 60,
@@ -31,6 +31,6 @@
   },
   "governance": {
     "owner_contact": "soc-federation@workshop.highvelocitynetworking.com",
-    "incident_response_runbook": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/ip-reputation/INCIDENT-RUNBOOK.md"
+    "incident_response_runbook": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/asn-info/INCIDENT-RUNBOOK.md"
   }
 }

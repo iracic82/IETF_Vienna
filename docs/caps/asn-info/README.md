@@ -1,4 +1,4 @@
-# ip-reputation — DNS-AID cap docs
+# asn-info — DNS-AID cap docs
 
 **MCP server** (Streamable HTTP). Three documents:
 
@@ -10,9 +10,9 @@
 
 Hosted at:
 ```
-https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json
-https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/mcp-server-card.json
-https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json
+https://ietf-vienna-cap-docs.s3.amazonaws.com/asn-info/v1.json
+https://ietf-vienna-cap-docs.s3.amazonaws.com/asn-info/mcp-server-card.json
+https://ietf-vienna-cap-docs.s3.amazonaws.com/asn-info/policy.json
 ```
 
-Tool exposed: `lookup_ip` — Return federation reputation verdict for an IPv4 address.
+Tool exposed: `lookup_asn` — Return ASN + country + ISP for an IP.
