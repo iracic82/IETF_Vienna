@@ -118,8 +118,17 @@ dns-aid publish \
     --version 1.0.0 \
     --description "Threat-intel federation: IP reputation lookup" \
     --cap-uri    "${CAP_BASE_URL}/ip-reputation/v1.json" \
-    --policy-uri "${CAP_BASE_URL}/ip-reputation/policy.json"
+    --policy-uri "${CAP_BASE_URL}/ip-reputation/policy.json" \
+    --ttl 15
 ```
+
+> **Why `--ttl 15`:** when you delete this record later (C3 punchline),
+> downstream resolvers (1.1.1.1, 9.9.9.9, local CoreDNS) keep serving
+> the cached answer until the TTL expires. With the dns-aid default
+> TTL=3600, deletes would take an hour to propagate — invisible in a
+> demo. TTL=15 means caches refresh every ~15s and "delete → route
+> vanishes" lands within 30 seconds. Production federations use higher
+> TTLs (300–3600s) to reduce DNS load.
 
 What just happened, in order:
 
