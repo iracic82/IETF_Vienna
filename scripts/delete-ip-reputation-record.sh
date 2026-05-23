@@ -14,7 +14,7 @@ TARGET="_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}."
 echo "Target: ${TARGET}"
 
 for KIND in SVCB TXT; do
-    RRSET=$(aws route53 list-resource-record-sets \
+    RRSET=$(sudo aws route53 list-resource-record-sets \
         --hosted-zone-id "${ROUTE53_ZONE_ID}" \
         --query "ResourceRecordSets[?Name=='${TARGET}'&&Type=='${KIND}'] | [0]")
     if [ "${RRSET}" = "null" ]; then
@@ -22,7 +22,7 @@ for KIND in SVCB TXT; do
         continue
     fi
     echo "{\"Changes\":[{\"Action\":\"DELETE\",\"ResourceRecordSet\":${RRSET}}]}" > /tmp/del.json
-    STATUS=$(aws route53 change-resource-record-sets \
+    STATUS=$(sudo aws route53 change-resource-record-sets \
         --hosted-zone-id "${ROUTE53_ZONE_ID}" \
         --change-batch file:///tmp/del.json \
         --query 'ChangeInfo.Status' --output text)
