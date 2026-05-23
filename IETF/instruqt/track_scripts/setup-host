@@ -40,6 +40,12 @@ fi
 apt-get install -y sudo >/dev/null 2>&1 || true
 cat > /etc/sudoers.d/student <<'EOF'
 # IETF lab — student may run these as root, nothing else.
+# env_keep preserves the lab env vars across the sudo boundary so
+# dns-aid / aws cli see DNS_AID_BACKEND, ROUTE53_ZONE_ID, etc.
+# Without this, sudo's default env_reset strips them and dns-aid
+# falls back to auto-detect (which doesn't find per-sandbox subdomains).
+Defaults env_keep += "DNS_AID_BACKEND ROUTE53_ZONE_ID HOSTED_ZONE_ID AWS_DEFAULT_REGION SANDBOX_SLUG ZONE CAP_BASE_URL SIGN_KEY SIGN_KID GOOGLE_CLOUD_PROJECT GOOGLE_APPLICATION_CREDENTIALS VERTEX_LOCATION"
+
 student ALL=(root) NOPASSWD: /root/.local/bin/dns-aid *
 student ALL=(root) NOPASSWD: /root/.local/bin/dns-aid
 student ALL=(root) NOPASSWD: /usr/local/bin/aws *
@@ -52,10 +58,11 @@ chmod 440 /etc/sudoers.d/student
 
 # 4. Aliases so common lab commands transparently sudo (zero UX
 #    impact — students type `dns-aid publish` as before).
+#    -E preserves all student env (combined with env_keep above).
 cat > /home/student/.bash_aliases <<'EOF'
-alias dns-aid='sudo /root/.local/bin/dns-aid'
-alias aws='sudo /usr/local/bin/aws'
-alias docker='sudo /usr/bin/docker'
+alias dns-aid='sudo -E /root/.local/bin/dns-aid'
+alias aws='sudo -E /usr/local/bin/aws'
+alias docker='sudo -E /usr/bin/docker'
 EOF
 
 if ! grep -q '.bash_aliases' /home/student/.bashrc; then
