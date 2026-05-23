@@ -64,20 +64,30 @@ install_deps() {
 
     # Patch dns-aid v0.13: chunk TXT record values > 255 chars into multiple
     # quoted strings (Route 53 limit). Required for JWS-signed records
-    # whose token easily exceeds 255 chars.
+    # whose token easily exceeds 255 chars. The helper MUST be inserted
+    # AFTER `from __future__ import annotations` — Python requires future
+    # imports to be the first statement in the file.
     if [ -n "${R53_FILE}" ] && ! grep -q '_chunk255' "${R53_FILE}"; then
         echo "[setup] patching ${R53_FILE} to chunk long TXT values (Route53 255-char limit)"
         python3 - "${R53_FILE}" <<'PYPATCH'
-import sys, re, pathlib
+import sys, pathlib
 p = pathlib.Path(sys.argv[1])
 src = p.read_text()
 helper = '''
+
 def _chunk255(s):
     """Split a string into <=255-char chunks and join as Route 53 multi-string TXT value."""
     return " ".join('"' + s[i:i+255] + '"' for i in range(0, len(s), 255))
 '''
 if "_chunk255" not in src:
-    src = helper + src
+    # Insert helper AFTER the `from __future__ import annotations` line so
+    # Python doesn't complain about future imports not being first.
+    marker = "from __future__ import annotations\n"
+    if marker in src:
+        src = src.replace(marker, marker + helper, 1)
+    else:
+        # Fallback: file has no future import, safe to prepend.
+        src = helper.lstrip() + src
 # Replace the single-quoted TXT value construction with chunked form.
 src = src.replace(
     "{'Value': f'\"{v}\"'}",
