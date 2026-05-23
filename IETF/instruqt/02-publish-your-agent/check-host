@@ -1,15 +1,23 @@
 #!/bin/bash
+# Pass when an SVCB record exists publicly. Uses +noall +answer so it
+# works uniformly across resolvers (Cloudflare's +short doesn't
+# pretty-print SVCB rdata reliably). Falls back to Quad9 then Google
+# in case one resolver hasn't propagated yet.
 set -uo pipefail
-source /tmp/sandbox.env 2>/dev/null || true
+source /opt/lab/lab.env 2>/dev/null || source /tmp/sandbox.env 2>/dev/null || true
 : "${SANDBOX_SLUG:?missing}"
 : "${ZONE:?missing}"
 
 NAME="_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}"
-RESULT=$(dig +short SVCB "${NAME}" @1.1.1.1 2>&1 || true)
 
-if [ -n "${RESULT}" ] && ! echo "${RESULT}" | grep -qi NXDOMAIN; then
-    echo "✓ ${NAME} resolves: ${RESULT}"
-    exit 0
-fi
-echo "ℹ ${NAME} not resolvable yet — run dns-aid publish (see assignment)"
+for resolver in 1.1.1.1 9.9.9.9 8.8.8.8; do
+    ANSWER=$(dig +noall +answer SVCB "${NAME}" @${resolver} 2>/dev/null || true)
+    if echo "${ANSWER}" | grep -qi "SVCB"; then
+        echo "✓ ${NAME} resolves (via ${resolver}):"
+        echo "  ${ANSWER}"
+        exit 0
+    fi
+done
+
+echo "ℹ ${NAME} not resolvable yet on Cloudflare/Quad9/Google — run dns-aid publish"
 exit 1
