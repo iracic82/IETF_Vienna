@@ -25,8 +25,8 @@ tags:
 owner: infoblox
 developers:
 - iracic@infoblox.com
-idle_timeout: 300
-timelimit: 1200
+idle_timeout: 8400
+timelimit: 8400
 lab_config:
   sidebar_enabled: true
   feedback_recap_enabled: true

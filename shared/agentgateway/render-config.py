@@ -4,12 +4,11 @@ Reads AGENTS env var (comma-separated agent slugs) and emits the path-mode
 config to stdout. Path layout matches the proven config.path.yaml from
 DNS-AID/DEMO/agentgateway-2mcp/gateway/.
 
-Per agent we emit two routes:
+Per agent we emit one route:
   POST /<slug>/mcp       → mcp backend pointing at fastmcp-<slug>:3000
-  GET  /<slug>/cap.json  → http proxy to fastmcp-<slug>:3000 with urlRewrite
 
-Cap-doc Pattern A (upstream serves, gateway proxies). Cap bytes are stable
-because the FastMCP container bakes /app/cap.json at build time.
+Cap docs are NOT served here; they live on a public S3 bucket and are
+referenced from the DNS-AID record via --cap-uri.
 
 Env
   AGENTS              comma-separated agent slugs (e.g. "ip-reputation,url-scanner")
@@ -59,48 +58,15 @@ def mcp_route(slug: str) -> str:
 """
 
 
-def cap_route(slug: str) -> str:
-    """Pattern B: gateway serves the cap doc inline via directResponse.
-
-    No upstream HTTP call — the cap-sha256 is byte-stable so the no-churn
-    property holds even if the FastMCP container restarts. Lab values are
-    hard-coded; in production you'd template per-agent metadata in.
-    """
-    import json as _json
-    cap_body = _json.dumps({
-        "agent": slug,
-        "version": "1.0.0",
-        "protocol": "mcp",
-        "transport": "streamable-http",
-        "capabilities": [slug],
-        "tools": [{"name": f"lookup_{slug.split('-')[0]}", "description": f"{slug} federation lookup"}],
-        "auth": {"type": "none", "note": "lab demo"},
-        "served_by": "agentgateway (Pattern B: inline directResponse)",
-    }, indent=2)
-    # Escape for YAML block scalar.
-    cap_indent = "\n              ".join(cap_body.splitlines())
-    return f"""\
-          - name: {slug}-cap-v1
-            matches:
-              - path:
-                  exact: /{slug}/cap.json
-            policies:
-              cors:
-                allowOrigins: ["*"]
-              directResponse:
-                status: 200
-                headers:
-                  content-type: application/json
-                body: |
-                  {cap_indent}
-"""
-
-
 def render() -> str:
-    routes = []
-    for slug in AGENTS:
-        routes.append(mcp_route(slug))
-        routes.append(cap_route(slug))
+    # Cap docs are NOT served by agentgateway anymore — they live on a
+    # public S3 bucket (ietf-vienna-cap-docs) and are referenced via
+    # --cap-uri / --policy-uri in the DNS-AID record. The old inline
+    # directResponse route was removed for two reasons:
+    #   1) its YAML block-scalar indentation was buggy and made
+    #      agentgateway crash on startup
+    #   2) it duplicated the S3-hosted source of truth
+    routes = [mcp_route(slug) for slug in AGENTS]
 
     return f"""# yaml-language-server: $schema=https://agentgateway.dev/schema/config
 #
@@ -110,9 +76,9 @@ def render() -> str:
 # Path-mode routing (matches DNS-AID/DEMO/agentgateway-2mcp/gateway/config.path.yaml).
 # SVCB record targets all point to this gateway; capability disambiguated by URL path.
 #
-# For each agent X we expose:
+# Per agent X we expose:
 #   POST /X/mcp         → MCP proxy to fastmcp-X:3000/mcp
-#   GET  /X/cap.json    → urlRewrite + proxy to fastmcp-X:3000/agent-cap.json
+# Cap docs live on https://ietf-vienna-cap-docs.s3.amazonaws.com.
 
 config:
   adminAddr: "{ADMIN_ADDR}"
