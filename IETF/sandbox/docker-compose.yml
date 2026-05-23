@@ -89,6 +89,8 @@ services:
     environment:
       LAB: ietf
       SANDBOX_SLUG: ${SANDBOX_SLUG}
+      ZONE: ${ZONE:-lab.ccdesanity.com}
+      ROUTE53_ZONE_ID: ${HOSTED_ZONE_ID}
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
       VERTEX_LOCATION: ${VERTEX_LOCATION:-us-east5}
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp-sa.json
