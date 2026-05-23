@@ -1,2 +1,39 @@
 #!/bin/bash
+# Tear down published DNS records so the per-sandbox subdomain doesn't
+# accumulate stale entries across runs. The dns-aid CLI does not yet
+# expose a delete sub-command for v0.13, so we drive Route 53 directly
+# via the AWS CLI — UPSERT-by-empty isn't a thing, so we ChangeBatch
+# DELETE each known record kind we publish.
+#
+# Idempotent: missing records → no-op (ignore 'InvalidChangeBatch').
+set -uo pipefail
+source /opt/lab/lab.env 2>/dev/null || source /tmp/sandbox.env
+
+REC="_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}"
+
+delete_rrset() {
+    local kind="$1"
+    # Pull current value so we can submit an exact-match DELETE.
+    local existing
+    existing=$(aws route53 list-resource-record-sets \
+        --hosted-zone-id "${HOSTED_ZONE_ID}" \
+        --query "ResourceRecordSets[?Name=='${REC}.'&&Type=='${kind}']" \
+        --output json 2>/dev/null || echo "[]")
+
+    if [ "$(echo "${existing}" | jq 'length')" = "0" ]; then
+        return 0
+    fi
+
+    local change
+    change=$(jq -n --argjson rrset "$(echo "${existing}" | jq '.[0]')" \
+        '{Changes: [{Action: "DELETE", ResourceRecordSet: $rrset}]}')
+
+    aws route53 change-resource-record-sets \
+        --hosted-zone-id "${HOSTED_ZONE_ID}" \
+        --change-batch "${change}" >/dev/null 2>&1 || true
+}
+
+for kind in SVCB TXT; do
+    delete_rrset "${kind}"
+done
 exit 0

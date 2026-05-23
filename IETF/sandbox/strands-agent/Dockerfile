@@ -2,18 +2,22 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install Strands + LiteLLM (with vertex extras) + dns-aid + mcp client.
+# Vertex AI SDK + dns-aid MCP client.
+# Strands/LiteLLM are kept only because shared/strands_dnsaid imports
+# from them at module-load time (harmless even though we don't use Strands).
 RUN pip install --no-cache-dir \
-    "strands-agents[litellm]>=0.1.0" \
-    "litellm[vertex]>=1.50.0" \
     "google-cloud-aiplatform>=1.38" \
-    'dns-aid[mcp,cli,route53]>=0.13.0'
+    "vertexai>=1.43" \
+    "mcp>=1.0" \
+    'dns-aid[mcp,cli,route53]>=0.13.0' \
+    "strands-agents[litellm]>=0.1.0" \
+    "litellm[vertex]>=1.50.0"
 
 # strands_dnsaid is mounted at /app/strands_dnsaid by docker-compose.
 ENV PYTHONPATH=/app
-
-COPY agent.py /app/agent.py
-
 ENV PYTHONUNBUFFERED=1
+
+COPY agent_vertex.py /app/agent_vertex.py
+COPY agent.py /app/agent.py
 
 CMD ["python", "-u", "agent.py"]

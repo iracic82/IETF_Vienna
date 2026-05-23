@@ -1,13 +1,21 @@
 #!/bin/bash
-# Auto-publish for testing (instruqt track test).
+# Auto-publish — matches the working command in the assignment so
+# `instruqt track test` can drive the lab end-to-end.
 set -uo pipefail
-source /tmp/sandbox.env
+source /opt/lab/lab.env 2>/dev/null || source /tmp/sandbox.env
+
 dns-aid publish \
     --name ip-reputation \
     --domain "${SANDBOX_SLUG}.${ZONE}" \
     --protocol mcp \
-    --endpoint "gw.${SANDBOX_SLUG}.${ZONE}" \
+    --endpoint agentgateway \
     --port 3000 \
+    --transport streamable-http \
     --capability ip-reputation \
-    --version 1.0.0 || true
+    --version 1.0.0 \
+    --description "Threat-intel federation: IP reputation lookup" \
+    --cap-uri    "${CAP_BASE_URL}/ip-reputation/v1.json" \
+    --policy-uri "${CAP_BASE_URL}/ip-reputation/policy.json" \
+    --sign \
+    --private-key "${SIGN_KEY}" || true
 exit 0

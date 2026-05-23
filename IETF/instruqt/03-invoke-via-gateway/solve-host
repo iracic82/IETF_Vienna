@@ -1,4 +1,7 @@
 #!/bin/bash
+# Auto-invoke — sends one question to the agent so the check finds a
+# lookup_ip event in the hub. agent.py delegates to agent_vertex.py.
 set -uo pipefail
-docker exec strands-agent bash -c "echo 'Is 185.220.101.45 malicious?' | python /app/agent.py" || true
+docker exec strands-agent bash -c \
+    "echo 'Is 185.220.101.45 malicious?' | python /app/agent.py" || true
 exit 0
