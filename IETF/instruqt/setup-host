@@ -1,0 +1,11 @@
+#!/bin/bash
+# Track-level setup. Fires ONCE when the entire track starts, before
+# any challenge's setup-host runs.
+#
+# We intentionally keep this empty: all heavy lifting (apt installs,
+# repo clone, docker compose, dns-aid install) is done in challenge 1's
+# setup-host so the install logic lives next to the challenge that
+# uses it. Track-level just confirms the placeholder is here.
+set -uo pipefail
+echo "[track-setup] IETF DNS-AID lab — starting"
+exit 0
