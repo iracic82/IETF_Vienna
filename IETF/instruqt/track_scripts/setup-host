@@ -58,11 +58,13 @@ chmod 440 /etc/sudoers.d/student
 
 # 4. Aliases so common lab commands transparently sudo (zero UX
 #    impact — students type `dns-aid publish` as before).
-#    -E preserves all student env (combined with env_keep above).
+#    No -E flag — that would require SETENV permission in sudoers.
+#    Defaults env_keep above already passes through the specific lab
+#    env vars we need (DNS_AID_BACKEND, ROUTE53_ZONE_ID, etc).
 cat > /home/student/.bash_aliases <<'EOF'
-alias dns-aid='sudo -E /root/.local/bin/dns-aid'
-alias aws='sudo -E /usr/local/bin/aws'
-alias docker='sudo -E /usr/bin/docker'
+alias dns-aid='sudo /root/.local/bin/dns-aid'
+alias aws='sudo /usr/local/bin/aws'
+alias docker='sudo /usr/bin/docker'
 EOF
 
 if ! grep -q '.bash_aliases' /home/student/.bashrc; then

@@ -17,11 +17,11 @@ student ALL=(root) NOPASSWD: /usr/local/bin/uv *
 EOF
 sudo chmod 440 /etc/sudoers.d/student
 
-echo "[fix] updating ~/.bash_aliases with sudo -E"
+echo "[fix] updating ~/.bash_aliases (no -E, env_keep handles it)"
 cat > "${HOME}/.bash_aliases" <<'EOF'
-alias dns-aid='sudo -E /root/.local/bin/dns-aid'
-alias aws='sudo -E /usr/local/bin/aws'
-alias docker='sudo -E /usr/bin/docker'
+alias dns-aid='sudo /root/.local/bin/dns-aid'
+alias aws='sudo /usr/local/bin/aws'
+alias docker='sudo /usr/bin/docker'
 EOF
 
 echo "[fix] done — reload aliases with: source ~/.bash_aliases"
