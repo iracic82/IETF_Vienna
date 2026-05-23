@@ -145,11 +145,38 @@ export VERTEX_LOCATION="${VERTEX_LOCATION:-us-east5}"
 echo "[setup] GCP project: ${GOOGLE_CLOUD_PROJECT}"
 echo "[setup] GCP SA key:  ${GOOGLE_APPLICATION_CREDENTIALS} ($(wc -c < ${GOOGLE_APPLICATION_CREDENTIALS}) bytes)"
 
-# ── 3. AWS + Route 53 env wiring.
+# ── 3. AWS + Route 53 credentials wiring.
+#
+# Security: AWS keys are persisted ONLY to /root/.aws/credentials
+# (chmod 600). They are NOT written to /root/.bashrc or /opt/lab/lab.env,
+# so a student running `env` or `set` will never see them. Boto3 (used
+# by dns-aid) reads ~/.aws/credentials automatically via the default
+# credential chain.
+#
+# We DO export them in this script's own env so that:
+#   (a) bootstrap.sh can pass them to docker compose via env interpolation
+#       (containers need them at runtime to call Route 53)
+#   (b) any tooling spawned by setup-host inherits them
+# These exports die when setup-host exits — student shell never sees them.
 export AWS_ACCESS_KEY_ID="${DEMO_AWS_ACCESS_KEY_ID:?missing Instruqt secret}"
 export AWS_SECRET_ACCESS_KEY="${DEMO_AWS_SECRET_ACCESS_KEY:?missing Instruqt secret}"
-export HOSTED_ZONE_ID="${AI_DNS_Zone_ID:?missing Instruqt secret AI_DNS_Zone_ID}"
 export AWS_DEFAULT_REGION=us-east-1
+export HOSTED_ZONE_ID="${AI_DNS_Zone_ID:?missing Instruqt secret AI_DNS_Zone_ID}"
+
+# Persist credentials in the canonical boto3 location.
+mkdir -p /root/.aws
+cat > /root/.aws/credentials <<EOF
+[default]
+aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+EOF
+cat > /root/.aws/config <<EOF
+[default]
+region = us-east-1
+output = json
+EOF
+chmod 700 /root/.aws
+chmod 600 /root/.aws/credentials /root/.aws/config
 # ZONE is the DNSSEC-signed lab subzone delegated from ccdesanity.com.
 # Full chain validates from root: . → com → ccdesanity.com → lab.ccdesanity.com.
 # dig +dnssec on this zone returns the AD (Authenticated Data) flag.
@@ -191,12 +218,13 @@ echo "${SANDBOX_SLUG}" > /tmp/SANDBOX_SLUG
 #    2. /root/.bashrc      — auto-loaded into every interactive shell
 #    3. agent variable set — Instruqt-native, available to check scripts
 mkdir -p /opt/lab
+# /opt/lab/lab.env carries NON-SENSITIVE vars only. AWS credentials are
+# stored separately in /root/.aws/credentials (boto3 default chain).
+# `set` / `env` from a student shell will never reveal AWS keys.
 cat > /opt/lab/lab.env <<EOF
 export SANDBOX_SLUG="${SANDBOX_SLUG}"
 export ZONE="${ZONE}"
 export HOSTED_ZONE_ID="${HOSTED_ZONE_ID}"
-export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
-export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}"
 export GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT}"
 export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS}"
@@ -208,7 +236,7 @@ export SIGN_KEY="${SIGN_KEY}"
 export SIGN_KID="${SIGN_KID}"
 export PATH="${HOME}/.local/bin:/usr/local/bin:\$PATH"
 EOF
-chmod 600 /opt/lab/lab.env
+chmod 644 /opt/lab/lab.env   # readable — but contains no secrets
 
 # Auto-load into every new interactive shell (idempotent — skip if already added).
 if ! grep -q "source /opt/lab/lab.env" /root/.bashrc 2>/dev/null; then

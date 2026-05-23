@@ -12,6 +12,16 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SHARED="$(cd "${HERE}/../../shared" && pwd)"
 
+# Load AWS creds from the canonical boto3 location (NOT shell env) so
+# docker compose can interpolate them into container env at compose-up
+# time. They die with this shell — student shell never sees them.
+if [ -z "${AWS_ACCESS_KEY_ID:-}" ] && [ -r /root/.aws/credentials ]; then
+    AWS_ACCESS_KEY_ID=$(awk -F' *= *' '/aws_access_key_id/ {print $2; exit}' /root/.aws/credentials)
+    AWS_SECRET_ACCESS_KEY=$(awk -F' *= *' '/aws_secret_access_key/ {print $2; exit}' /root/.aws/credentials)
+    export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+fi
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+
 # Render CoreDNS config (forwards to public; agent traffic stays in docker net).
 export AGENTGATEWAY_IP="0.0.0.0"
 "${SHARED}/coredns/render-corefile.sh" "${SHARED}/coredns/rendered"
