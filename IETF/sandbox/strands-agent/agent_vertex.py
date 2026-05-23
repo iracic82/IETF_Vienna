@@ -97,7 +97,7 @@ HONEST REPORTING — report ONLY what's in the enrichment fields:
   - signature_status=="verified" → "JWS signature: verified — signer <kid>"
   - __cap_doc not null           → "Cap doc: <__cap_uri> (fetched, agent=<__cap_doc.agent>, version=<__cap_doc.version>)"
   - __cap_doc is null            → "Cap doc: <__cap_uri> (fetch failed)"
-  - __cap_doc.policy_uri present → "Policy: <__cap_doc.policy_uri>"
+  - __policy_uri present         → "Policy: <__policy_uri>"
 
 If the federation says "unknown", REPORT unknown. If a tool fails, REPORT
 the error verbatim.
@@ -235,23 +235,61 @@ def _canonical_endpoint(raw: str | None, agent_name: str = "ip-reputation") -> s
 # and DNSSEC validation visibly part of the audit chain.
 
 
-def _find_cap_uri(obj) -> str | None:
-    """Walk a nested dict/list and return the first cap_uri / cap URL found.
+_CAP_URL_HINTS = ("/v1.json", "/cap.json", "/mcp-server-card.json")
 
-    dns-aid v0.21 returns agents in JSON shape:
-        {agents: [{cap_uri, capability_source, ...}, ...]}
-    But it may also nest under txt_fallback fields. Walk everything.
+
+def _find_cap_uri(obj) -> str | None:
+    """Walk a nested dict/list and return the first plausible cap doc URL.
+
+    dns-aid v0.21 stores the cap URI under various keys (cap_uri, cap_url,
+    dnsaid_key65400, or even as a substring inside a TXT-fallback string).
+    Be permissive: any HTTPS URL whose path ends in a known cap doc name
+    counts. Also recognise dnsaid_keyNNNNN= prefixes.
     """
+    if isinstance(obj, str):
+        # Direct URL in a string value.
+        if obj.startswith("http") and any(h in obj for h in _CAP_URL_HINTS):
+            return obj
+        # TXT-fallback form: "dnsaid_key65400=https://..."
+        if "=http" in obj and any(h in obj for h in _CAP_URL_HINTS):
+            return obj.split("=", 1)[1]
+        return None
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if k.lower() in {"cap_uri", "cap_url"} and isinstance(v, str) and v.startswith("http"):
+            # Prefer well-known keys first when scanning a dict.
+            if k.lower() in {"cap_uri", "cap_url", "capuri"} and isinstance(v, str) and v.startswith("http"):
                 return v
+        for v in obj.values():
             found = _find_cap_uri(v)
             if found:
                 return found
     elif isinstance(obj, list):
         for item in obj:
             found = _find_cap_uri(item)
+            if found:
+                return found
+    return None
+
+
+def _find_policy_uri(obj) -> str | None:
+    """Same shape as _find_cap_uri but for policy.json."""
+    if isinstance(obj, str):
+        if obj.startswith("http") and "/policy.json" in obj:
+            return obj
+        if "=http" in obj and "/policy.json" in obj:
+            return obj.split("=", 1)[1]
+        return None
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k.lower() in {"policy_uri", "policy_url"} and isinstance(v, str) and v.startswith("http"):
+                return v
+        for v in obj.values():
+            found = _find_policy_uri(v)
+            if found:
+                return found
+    elif isinstance(obj, list):
+        for item in obj:
+            found = _find_policy_uri(item)
             if found:
                 return found
     return None
@@ -301,12 +339,19 @@ def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: s
         return result_text
 
     cap_uri = _find_cap_uri(result_obj)
+    policy_uri = _find_policy_uri(result_obj)
     cap_doc = None
     if cap_uri:
         print(f"  [cap-fetch] GET {cap_uri}")
         cap_doc = _fetch_cap_doc(cap_uri)
     else:
-        print("  [cap-fetch] no cap_uri found in discover result")
+        # Fallback: derive from TXT-known structure if the walker missed it.
+        derived = f"https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json"
+        print(f"  [cap-fetch] walker missed cap_uri; trying canonical {derived}")
+        cap_uri = derived
+        cap_doc = _fetch_cap_doc(derived)
+    if not policy_uri and cap_doc and isinstance(cap_doc, dict):
+        policy_uri = cap_doc.get("policy_uri") or cap_doc.get("policy")
 
     fqdn = f"_ip-reputation._mcp._agents.{sandbox_slug}.{zone}"
     dnssec = _check_dnssec(fqdn, "SVCB")
@@ -315,6 +360,7 @@ def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: s
     enrichment = {
         "__cap_uri": cap_uri,
         "__cap_doc": cap_doc,
+        "__policy_uri": policy_uri,
         "__dnssec_status": dnssec["status"],
         "__dnssec_flags": dnssec.get("flags", ""),
     }
