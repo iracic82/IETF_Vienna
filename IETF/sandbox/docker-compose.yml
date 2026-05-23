@@ -47,13 +47,20 @@ services:
       - --protocol=mcp
       - --agents
       - ip-reputation
-      - --dns-server=1.1.1.1
+      # Point at local CoreDNS (port 53 inside docker net) — keeps the
+      # demo snappy by avoiding public-resolver negative-cache windows
+      # (Cloudflare/Google/Quad9 can cache NXDOMAIN for 5–15 min if the
+      # translator polled before the record existed). CoreDNS forwards
+      # to upstream when it has no cache entry, so we always get fresh
+      # authoritative answers within seconds of a publish.
+      - --dns-server=coredns
       - --dns-port=53
       - --xds-listen=0.0.0.0:18000
       - --interval=5
       - --log-level=INFO
     ports:
       - "18000:18000"    # xDS gRPC (mostly for debug visibility)
+    depends_on: [coredns]
     networks: [lab]
 
   # ── 3b. agentgateway: xDS-driven (no static routes) ─────────────────

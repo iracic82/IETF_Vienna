@@ -136,23 +136,87 @@ What just happened, in order:
 
 ## Verify the public DNS layer
 
-> Note on `dig +short SVCB`: some resolvers (notably Cloudflare 1.1.1.1)
-> return SVCB rdata in a form `+short` doesn't pretty-print. Use
-> `+noall +answer` for consistent output.
+> **Tip on `dig +short SVCB`:** some resolvers (notably Cloudflare 1.1.1.1)
+> return SVCB rdata in a binary form that `+short` doesn't pretty-print.
+> Use `+noall +answer` for consistent output everywhere.
+
+Run these three checks. Each one validates a different layer of the
+discovery story.
+
+### Check 1 — the SVCB itself is resolvable from a public resolver
 
 ```bash
-echo "── Cloudflare (DNSSEC-validating) ──"
 dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
-
-echo "── DNSSEC AD flag (chain root → .com → ccdesanity.com → ${ZONE}) ──"
-dig +dnssec SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1 +noall +comments | grep flags
-# Expect:  ;; flags: qr rd ra ad   ← 'ad' = Authenticated Data = real DNSSEC validation
-
-echo "── TXT fallback (Route 53 demotes custom SVCB params to TXT) ──"
-dig +short TXT _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
-# You should see capabilities=, version=, description=, dnsaid_key65400=…cap doc URL,
-# dnsaid_key65403=…policy URL
 ```
+
+Expected output:
+```
+_ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com. 3600 IN SVCB 1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000
+```
+
+What each field means:
+
+| Field | Value | Means |
+|---|---|---|
+| `3600` | TTL | Cached for 1 hour at downstream resolvers |
+| `SVCB 1` | RR type + priority | Standard SVCB record, priority 1 |
+| `fastmcp-ip-reputation.` | target host | Where the actual MCP backend lives. The xDS translator uses THIS to wire the gateway's route. |
+| `mandatory=alpn,port` | required SvcParams | Clients MUST honour these |
+| `alpn="mcp"` | protocol | This endpoint speaks MCP (not h2, not http/1.1) |
+| `port=3000` | port | Backend listens on 3000 |
+
+### Check 2 — DNSSEC chain validates from root
+
+```bash
+dig +dnssec SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1 +noall +comments | grep flags
+```
+
+Expected output:
+```
+;; flags: qr rd ra ad; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 1
+```
+
+The crucial bit is **`ad`** — Authenticated Data. That means Cloudflare
+walked the full chain `.` → `.com` → `ccdesanity.com` → `lab.ccdesanity.com`
+and cryptographically verified every signature back to the IANA root
+trust anchor. No `ad` flag = chain didn't validate.
+
+`ANSWER: 2` means you got both the SVCB record AND its RRSIG signature.
+
+### Check 3 — cap_uri + policy_uri travel as TXT records
+
+Route 53 doesn't support custom SVCB SvcParams (key65400 / key65403), so
+dns-aid demotes those to TXT records. This is where the cap doc URL and
+policy URL live.
+
+```bash
+dig +short TXT _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+```
+
+Expected output:
+```
+"version=1.0.0"
+"capabilities=ip-reputation"
+"description=Threat-intel federation: IP reputation lookup"
+"dnsaid_key65400=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json"
+"dnsaid_key65403=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json"
+```
+
+The `dnsaid_key65400=...` line is your cap doc URL. The agent in C3
+will fetch this from S3 as part of its trust check.
+
+> **Real-world caveat on DNS caching:** if you ever notice the gateway
+> taking longer than 5s to pick up a newly published agent, you're
+> hitting **negative caching at the public resolver**. Most resolvers
+> (including 1.1.1.1) cache NXDOMAIN responses for the duration of the
+> parent zone's SOA *minimum* field — typically 5–15 minutes. If a
+> resolver queried for an agent BEFORE you published it, it'll keep
+> serving NXDOMAIN until that cache expires.
+>
+> **In this lab the translator polls the local CoreDNS resolver** (which
+> has no negative-cache pollution from earlier queries), so publish →
+> route-materialized usually happens in <10s. In a production federation,
+> design with this caching window in mind.
 
 ## Verify the xDS layer caught up
 
