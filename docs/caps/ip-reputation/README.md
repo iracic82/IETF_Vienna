@@ -3,10 +3,12 @@
 This directory ships the four documents that describe the `ip-reputation`
 agent for the IETF_Vienna federation:
 
+**This is an MCP server** (provides MCP tools). MCP servers ship the MCP
+Server Card only — `agent-card.json` is for A2A protocol agents, not MCP.
+
 | File | Format | Discovery convention |
 |---|---|---|
 | `mcp-server-card.json` | MCP SEP-1649 Server Card | `.well-known/mcp-server-card` on the MCP HTTP endpoint |
-| `agent-card.json` | A2A Agent Card | `.well-known/agent-card.json` on the agent root |
 | `policy.json` | Custom policy doc | Referenced from `policy_uri` in DNS-AID cap |
 | `v1.json` | DNS-AID cap-doc envelope (this version) | Referenced from SVCB `key65400` (cap_uri) |
 

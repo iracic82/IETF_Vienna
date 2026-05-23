@@ -147,10 +147,12 @@ export SANDBOX_SLUG
 # dns-aid backend wiring — student-runnable publish/discover commands will
 # pick these up from env automatically.
 export DNS_AID_BACKEND=route53
-# dns-aid Route53Backend reads ROUTE53_ZONE_ID (verified in dns-aid v0.13
-# after we patch __init__ to honor it). Skips the ListHostedZones call
-# that the IAM user can't make.
 export ROUTE53_ZONE_ID="${HOSTED_ZONE_ID}"
+
+# External cap-doc base URL (public S3 bucket on a separate AWS account).
+# All learners pull the same cap docs from here — single source of truth,
+# no per-sandbox SSRF/TLS issues.
+export CAP_BASE_URL="https://ietf-vienna-cap-docs.s3.amazonaws.com"
 
 # Convenience symlink so the Editor tab (path: /root) shows the lab code.
 ln -sfn /opt/lab/IETF_Vienna /root/lab 2>/dev/null || true
@@ -189,6 +191,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS}"
 export VERTEX_LOCATION="${VERTEX_LOCATION}"
 export DNS_AID_BACKEND="${DNS_AID_BACKEND}"
 export ROUTE53_ZONE_ID="${ROUTE53_ZONE_ID}"
+export CAP_BASE_URL="${CAP_BASE_URL}"
 export SIGN_KEY="${SIGN_KEY}"
 export SIGN_KID="${SIGN_KID}"
 export PATH="${HOME}/.local/bin:/usr/local/bin:\$PATH"
