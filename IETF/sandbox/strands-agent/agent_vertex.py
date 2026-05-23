@@ -88,13 +88,16 @@ REQUIRED FLOW for IP queries:
             - Policy: <__cap_doc.policy_uri or "none">
             - Invoked via: <endpoint>
 
-HONEST REPORTING — if a trust signal is missing, say so explicitly.
-Examples:
-  - If signature_status=="unsigned" → "JWS signature: not signed (cap doc unsigned)"
-  - If signature_status=="verified" → "JWS signature: verified — signer <kid>"
-  - If dnssec_status=="unsigned-zone" → "DNSSEC: not enabled in lab (parent zone unsigned)"
-  - If dnssec_status=="ad" → "DNSSEC: validated (AD flag set on SVCB query)"
-  - If __cap_doc is null → "Cap doc: <url> (fetch failed)"
+HONEST REPORTING — report ONLY what's in the enrichment fields:
+  - __dnssec_status=="ad"        → "DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)"
+  - __dnssec_status=="no-ad"     → "DNSSEC: zone responded but no AD flag (unsigned chain)"
+  - __dnssec_status=="servfail"  → "DNSSEC: SERVFAIL (broken chain)"
+  - __dnssec_status=="unknown"   → "DNSSEC: status unknown (dig unavailable)"
+  - signature_status=="unsigned" → "JWS signature: not signed (cap doc unsigned)"
+  - signature_status=="verified" → "JWS signature: verified — signer <kid>"
+  - __cap_doc not null           → "Cap doc: <__cap_uri> (fetched, agent=<__cap_doc.agent>, version=<__cap_doc.version>)"
+  - __cap_doc is null            → "Cap doc: <__cap_uri> (fetch failed)"
+  - __cap_doc.policy_uri present → "Policy: <__cap_doc.policy_uri>"
 
 If the federation says "unknown", REPORT unknown. If a tool fails, REPORT
 the error verbatim.
@@ -225,47 +228,96 @@ def _canonical_endpoint(raw: str | None, agent_name: str = "ip-reputation") -> s
     return raw
 
 
-# ── Cap doc fetch + enrichment ─────────────────────────────────────────
-# When the agent calls discover_agents_via_dns, we automatically GET the
-# cap_uri (S3) and inline the parsed JSON into the result the model sees.
-# This makes the S3 layer visibly part of the discovery flow — the model
-# reads the actual contract before invoking.
-
-_CAP_URL_RE = re.compile(r'https?://[^\s",}\]]+')
+# ── Cap doc fetch + DNSSEC enrichment ──────────────────────────────────
+# After discover_agents_via_dns returns, we (1) GET the cap_uri (S3) and
+# (2) re-query the SVCB record with +dnssec to surface the AD flag, then
+# inline both into the response the model sees. This makes the S3 layer
+# and DNSSEC validation visibly part of the audit chain.
 
 
-def _extract_cap_uris(result_text: str) -> list[str]:
-    """Pull S3 cap doc URLs out of dns-aid discover's text output."""
-    return list({
-        url for url in _CAP_URL_RE.findall(result_text)
-        if "/v1.json" in url or "cap" in url.lower()
-    })
+def _find_cap_uri(obj) -> str | None:
+    """Walk a nested dict/list and return the first cap_uri / cap URL found.
+
+    dns-aid v0.21 returns agents in JSON shape:
+        {agents: [{cap_uri, capability_source, ...}, ...]}
+    But it may also nest under txt_fallback fields. Walk everything.
+    """
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k.lower() in {"cap_uri", "cap_url"} and isinstance(v, str) and v.startswith("http"):
+                return v
+            found = _find_cap_uri(v)
+            if found:
+                return found
+    elif isinstance(obj, list):
+        for item in obj:
+            found = _find_cap_uri(item)
+            if found:
+                return found
+    return None
 
 
 def _fetch_cap_doc(url: str) -> dict | None:
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
             return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError) as exc:
         print(f"  [cap-fetch] FAILED {url}: {exc}")
         return None
 
 
-def _enrich_with_cap_doc(name: str, result_text: str) -> str:
-    """If the tool was discover_agents_via_dns, fetch any cap URLs and
-    inline them as __cap_uri / __cap_doc fields the model can read."""
+def _check_dnssec(fqdn: str, rtype: str = "SVCB") -> dict:
+    """Query a public DNSSEC-validating resolver for AD flag.
+
+    Returns dict with status: 'ad' | 'no-ad' | 'servfail' | 'unknown'
+    and the actual dig output line.
+    """
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["dig", "+dnssec", "+noall", "+comments", rtype, fqdn, "@1.1.1.1"],
+            stderr=subprocess.STDOUT, timeout=5,
+        ).decode("utf-8", errors="replace")
+        # Look for the flags line: ";; flags: qr rd ra ad; QUERY: 1, ..."
+        flags_line = next((l for l in out.splitlines() if "flags:" in l), "")
+        status_line = next((l for l in out.splitlines() if "status:" in l), "")
+        if "SERVFAIL" in status_line:
+            return {"status": "servfail", "flags": flags_line.strip()}
+        if " ad;" in flags_line or " ad " in flags_line:
+            return {"status": "ad", "flags": flags_line.strip()}
+        return {"status": "no-ad", "flags": flags_line.strip()}
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as exc:
+        return {"status": "unknown", "error": str(exc)}
+
+
+def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: str) -> str:
+    """Post-discover enrichment: fetch S3 cap doc + check DNSSEC."""
     if name != "discover_agents_via_dns":
         return result_text
-    cap_uris = _extract_cap_uris(result_text)
-    if not cap_uris:
+
+    try:
+        result_obj = json.loads(result_text)
+    except json.JSONDecodeError:
         return result_text
-    # Most labs have one cap_uri; if more, just fetch the first to keep
-    # the response payload small.
-    cap_uri = cap_uris[0]
-    print(f"  [cap-fetch] GET {cap_uri}")
-    cap_doc = _fetch_cap_doc(cap_uri)
-    enrichment = {"__cap_uri": cap_uri, "__cap_doc": cap_doc}
-    # Prepend enrichment as a JSON line so the model reliably parses it.
+
+    cap_uri = _find_cap_uri(result_obj)
+    cap_doc = None
+    if cap_uri:
+        print(f"  [cap-fetch] GET {cap_uri}")
+        cap_doc = _fetch_cap_doc(cap_uri)
+    else:
+        print("  [cap-fetch] no cap_uri found in discover result")
+
+    fqdn = f"_ip-reputation._mcp._agents.{sandbox_slug}.{zone}"
+    dnssec = _check_dnssec(fqdn, "SVCB")
+    print(f"  [dnssec]   {fqdn} → {dnssec['status']}")
+
+    enrichment = {
+        "__cap_uri": cap_uri,
+        "__cap_doc": cap_doc,
+        "__dnssec_status": dnssec["status"],
+        "__dnssec_flags": dnssec.get("flags", ""),
+    }
     return json.dumps(enrichment, indent=2) + "\n\n--- raw discover output ---\n" + result_text
 
 
@@ -357,10 +409,12 @@ async def main() -> None:
                                         pieces.append(str(block))
                                 result_text = "\n".join(pieces) or "[empty]"
                                 # If this was a discovery call, fetch the
-                                # cap doc (S3) and inline it into the
-                                # response the model receives. Makes the
-                                # S3 layer a visible part of the flow.
-                                result_text = _enrich_with_cap_doc(name, result_text)
+                                # cap doc (S3) and check DNSSEC AD flag,
+                                # then inline both into the response the
+                                # model receives.
+                                result_text = _enrich_with_cap_doc(
+                                    name, result_text, SANDBOX_SLUG, ZONE,
+                                )
                             except Exception as exc:
                                 result_text = json.dumps({"error": str(exc)})
                         # Print result so we see exactly what the model receives.
