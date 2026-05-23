@@ -250,81 +250,8 @@ fi
 # Backward compat for any script still reading /tmp/sandbox.env.
 cp /opt/lab/lab.env /tmp/sandbox.env
 
-# ── 4b. Create a non-root `student` user and lock root down.
-#
-# Threat model: in lab 1 nothing valuable lives outside /root, but we
-# still don't want a curious learner to `cat /root/.aws/credentials`.
-# Strategy: Instruqt terminal opens as root, root's .bashrc immediately
-# `exec su - student` for interactive shells so the student lands in a
-# shell that can't read /root. Sudo rules let them run the specific
-# binaries the lab uses (dns-aid, docker, aws) as root without password.
-if ! id student >/dev/null 2>&1; then
-    useradd -m -s /bin/bash student
-fi
-
-# Lab env (non-sensitive) is auto-sourced for student too.
-mkdir -p /home/student
-if ! grep -q "source /opt/lab/lab.env" /home/student/.bashrc 2>/dev/null; then
-    {
-        echo ""
-        echo "# IETF_Vienna lab environment (non-sensitive vars only)"
-        echo "[ -f /opt/lab/lab.env ] && source /opt/lab/lab.env"
-        echo "cd /opt/lab/IETF_Vienna 2>/dev/null || true"
-    } >> /home/student/.bashrc
-fi
-chown -R student:student /home/student
-
-# Sudo rules: student can run lab tooling as root, NOT arbitrary
-# commands. Specifically blocks `sudo cat`, `sudo bash`, etc.
-apt-get install -y sudo >/dev/null 2>&1 || true
-cat > /etc/sudoers.d/student <<'EOF'
-# Lab tooling — root privileges, no password
-student ALL=(root) NOPASSWD: /root/.local/bin/dns-aid *
-student ALL=(root) NOPASSWD: /root/.local/bin/dns-aid
-student ALL=(root) NOPASSWD: /usr/local/bin/aws *
-student ALL=(root) NOPASSWD: /usr/local/bin/aws
-student ALL=(root) NOPASSWD: /usr/bin/docker *
-student ALL=(root) NOPASSWD: /usr/bin/docker
-student ALL=(root) NOPASSWD: /usr/local/bin/uv *
-EOF
-chmod 440 /etc/sudoers.d/student
-
-# Aliases so common lab commands transparently sudo (no UX clunk).
-cat > /home/student/.bash_aliases <<'EOF'
-alias dns-aid='sudo /root/.local/bin/dns-aid'
-alias aws='sudo /usr/local/bin/aws'
-alias docker='sudo /usr/bin/docker'
-EOF
-chown student:student /home/student/.bash_aliases
-
-# Ensure .bashrc sources aliases (Ubuntu default does, but be explicit).
-if ! grep -q '.bash_aliases' /home/student/.bashrc; then
-    echo "[ -f ~/.bash_aliases ] && source ~/.bash_aliases" >> /home/student/.bashrc
-fi
-chown student:student /home/student/.bashrc
-
-# Lock down /root so student (non-root) can't snoop.
-# (chmod 700 on these directories means non-root users can't even list,
-#  let alone cat. Root itself bypasses these of course — but the student
-#  shell is no longer root.)
-chmod 700 /root
-chmod 700 /root/.aws 2>/dev/null || true
-chmod 700 /root/.bashrc 2>/dev/null || true
-
-# Auto-switch Instruqt terminal (opens as root) to student for
-# interactive shells. The guard variable prevents loops + only fires
-# in interactive contexts (so setup/cleanup scripts are unaffected).
-if ! grep -q "STUDENT_SHELL_ACTIVE" /root/.bashrc; then
-    cat >> /root/.bashrc <<'EOF'
-
-# Auto-drop to non-root `student` for interactive terminals so AWS
-# secrets in /root/.aws/credentials are not readable from the shell.
-if [ -t 0 ] && [ -z "$STUDENT_SHELL_ACTIVE" ] && id student >/dev/null 2>&1; then
-    export STUDENT_SHELL_ACTIVE=1
-    exec su - student
-fi
-EOF
-fi
+# Student user creation + sudoers + /root lockdown live in
+# track_scripts/setup-host (runs once at track start).
 
 # Instruqt agent variables — accessible to check scripts as ${VAR_NAME}.
 if command -v agent >/dev/null 2>&1; then
