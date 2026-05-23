@@ -3,7 +3,8 @@ slug: publish-your-agent
 id: 2kfzxpqcouix
 type: challenge
 title: 2. Publish — DNS becomes a gateway route in 5 seconds
-teaser: Publish one DNS-AID record. Watch the agentgateway dynamically pick up the route via xDS.
+teaser: Publish one DNS-AID record. Watch the agentgateway dynamically pick up the
+  route via xDS.
 notes:
 - type: text
   contents: |-
@@ -22,7 +23,7 @@ tabs:
   type: service
   hostname: host
   port: 8080
-- id: ag-ui-c2
+- id: o9wteoifn4y8
   title: agentgateway UI
   type: service
   hostname: host

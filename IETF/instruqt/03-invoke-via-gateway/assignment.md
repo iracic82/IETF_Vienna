@@ -3,7 +3,8 @@ slug: invoke-via-gateway
 id: uno7yiytzyew
 type: challenge
 title: 3. Invoke — agent discovers, verifies, calls. Full trust chain.
-teaser: Watch the AI agent discover via DNS, fetch the cap doc from S3, verify DNSSEC, and invoke through the gateway.
+teaser: Watch the AI agent discover via DNS, fetch the cap doc from S3, verify DNSSEC,
+  and invoke through the gateway.
 notes:
 - type: text
   contents: |-
