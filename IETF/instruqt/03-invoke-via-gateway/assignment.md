@@ -164,24 +164,42 @@ translator → backend in this UI.
 
 ### Playground
 
-Interactive HTTP request tester. Try an MCP `initialize` without
-leaving the UI:
+Interactive HTTP request tester. Set up like this (paste each value as
+plain text — **no markdown backticks**):
 
-- **Request URL:** `http://localhost:3000/ip-reputation/mcp`
 - **HTTP Method:** `POST`
-- **Headers tab:**
-  - `content-type: application/json`
-  - `accept: application/json, text/event-stream`
-  - `mcp-protocol-version: 2025-03-26`
-- **Body tab:**
-  ```json
-  {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"playground","version":"0"}}}
-  ```
-- Hit **Send**.
+- **Request Path:** `/ip-reputation/mcp`
+- **Headers tab (Add each as Name + Value):**
+  - `content-type` → `application/json`
+  - `accept` → `application/json, text/event-stream`
+  - `mcp-protocol-version` → `2025-03-26`
+- **Body tab** — paste this as a single line, no backticks, no
+  language tag, just the JSON:
 
-You'll get a 200 response with the MCP server's `serverInfo`. This
-proves the round trip works end-to-end without the AI agent involved
-— the same path the agent uses in C3.
+```
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"playground","version":"0"}}}
+```
+
+Hit **Send**. The request will reach the gateway, but the **browser
+will likely block the response** with a "Network Error" — this is CORS:
+the UI runs on `:15000` and calls `:3000`, two different origins, and
+the xDS-pushed route doesn't carry a CORS policy.
+
+To prove the round trip works, use **curl from the Terminal tab**
+instead — same request, no CORS enforcement:
+
+```bash
+curl -sw '\nHTTP %{http_code}\n' \
+    -X POST http://localhost:3000/ip-reputation/mcp \
+    -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' \
+    -H 'mcp-protocol-version: 2025-03-26' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+```
+
+You'll get a 200 with the MCP server's `serverInfo`. That's the same
+round trip the AI agent uses — DNS publish → translator → xDS → gateway
+→ backend → MCP response.
 
 ### CEL Playground (foreshadowing)
 
