@@ -247,14 +247,25 @@ For now it's empty; in the workshop you'll write some.
 This route exists because of a DNS record. Try the demo punchline:
 
 ```bash
-# Delete the SVCB record
-aws route53 change-resource-record-sets --hosted-zone-id $ROUTE53_ZONE_ID \
-  --change-batch "$(aws route53 list-resource-record-sets --hosted-zone-id $ROUTE53_ZONE_ID \
-    --query "ResourceRecordSets[?Name=='_ip-reputation._mcp._agents.$SANDBOX_SLUG.$ZONE.'&&Type=='SVCB'] | [0] | {Changes:[{Action:'DELETE',ResourceRecordSet:@}]}")"
+# Delete both SVCB + TXT records for ip-reputation. Uses a temp JSON
+# file to avoid nested-quote issues that broke earlier one-liners.
+TARGET="_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}."
 
-# Within 5 seconds, refresh the agentgateway UI Routes page.
-# Routes count: 1 → 0. The route is gone.
-# Re-publish to continue with C3.
+for KIND in SVCB TXT; do
+    RRSET=$(aws route53 list-resource-record-sets --hosted-zone-id "${ROUTE53_ZONE_ID}" \
+        --query "ResourceRecordSets[?Name=='${TARGET}'&&Type=='${KIND}'] | [0]")
+    if [ "${RRSET}" != "null" ]; then
+        echo "{\"Changes\":[{\"Action\":\"DELETE\",\"ResourceRecordSet\":${RRSET}}]}" > /tmp/del.json
+        aws route53 change-resource-record-sets --hosted-zone-id "${ROUTE53_ZONE_ID}" \
+            --change-batch file:///tmp/del.json --query 'ChangeInfo.Status' --output text
+        echo "  ✓ deleted ${KIND}"
+    fi
+done
+rm -f /tmp/del.json
+
+# Within ~5s the translator notices the absence and removes the route.
+# Refresh the agentgateway UI Routes page: count 1 → 0.
+# Re-publish (C2 publish command) to continue with C3.
 ```
 
 ## Bonus 1 — compare resolvers side by side
