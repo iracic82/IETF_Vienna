@@ -39,7 +39,7 @@ services:
   # discovered agents into agentgateway xDS resources (Bind/Listener/
   # Route/Backend) over Envoy v3 ADS. No static config in the gateway.
   translator:
-    image: ghcr.io/iracic82/dns-aid-translator:0.3.0
+    build: ../../shared/translator-cors-patch
     container_name: translator
     command:
       - --mode=xds
