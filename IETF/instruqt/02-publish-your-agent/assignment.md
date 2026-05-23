@@ -2,23 +2,16 @@
 slug: publish-your-agent
 id: 2kfzxpqcouix
 type: challenge
-title: 2. Publish your federation capability
-teaser: Publish the ip-reputation DNS-AID record pointing at externally-hosted cap
-  docs in S3.
+title: 2. Publish — DNS becomes a gateway route in 5 seconds
+teaser: Publish one DNS-AID record. Watch the agentgateway dynamically pick up the route via xDS.
 notes:
 - type: text
   contents: |-
-    You publish — by hand — the DNS-AID record that lets other
-    federation members discover your capability. The record points at
-    a cap doc + MCP Server Card + policy doc hosted publicly on S3 —
-    the same docs every other learner sees. dns-aid talks to Route 53
-    directly using the Instruqt-injected secrets.
-
-    Note on JWS signing: this lab uses Route 53, which doesn't support
-    custom SVCB SvcParams (key65400/65403/65405), so dns-aid demotes
-    those to TXT records. JWS tokens exceed 255 chars and trigger a
-    Route-53 limit, so signing is omitted in this lab. We discuss the
-    "would-be signed" trust chain honestly in challenge 3.
+    You're going to do something that looks ordinary but is anything but:
+    create a DNS record. In five seconds, the agentgateway's route table
+    will change without anyone touching its config. That's the entire
+    point of this lab — DNS as the runtime control plane for AI agent
+    federations.
 tabs:
 - id: mxmrbnn0bk7x
   title: Terminal
@@ -29,6 +22,11 @@ tabs:
   type: service
   hostname: host
   port: 8080
+- id: ag-ui-c2
+  title: agentgateway UI
+  type: service
+  hostname: host
+  port: 15000
 - id: qtwx3muuwfqo
   title: Editor
   type: code
@@ -39,34 +37,40 @@ timelimit: 1800
 enhanced_loading: null
 ---
 
-# 2. Publish your federation capability
+# 2. Publish — DNS becomes a gateway route in 5 seconds
 
-## What you'll do
+## The architecture you're operating
 
-1. Create the **SVCB + TXT records** in Route 53 (`_ip-reputation._mcp._agents.<sub>...`)
-2. Reference the **externally-hosted cap doc** (MCP Server Card per SEP-1649, plus the policy doc) at `https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/`
+```
+   dns-aid publish ip-reputation       ┌──────────────────────┐
+        │                       ┌─────►│ fastmcp-ip-reputation│
+        ▼                       │      └──────────────────────┘
+   ┌──────────┐ poll SVCB  ┌────┴────┐
+   │ Route 53 │ ─────────► │ translator │  Envoy v3 ADS gRPC
+   │  (lab.   │            │            │ ◄─── stream open continuously
+   │   ccdes  │            │ ADS :18000 │      no restart, no outage
+   │   anity) │            └─────┬──────┘
+   └──────────┘                  │ Delta push on every snapshot change
+                                 ▼
+                          ┌──────────────────┐
+                          │  agentgateway    │ ← starts with 0 routes
+                          │  xdsAddress: ↑   │   after publish: 1 route
+                          └────────┬─────────┘
+                                   │ POST /ip-reputation/mcp
+                                   ▼
+                           agent (or curl, or any MCP client)
+```
 
-> Why no JWS in this lab? Route 53 doesn't support custom SVCB SvcParams,
-> so cap_uri / policy_uri / JWS are demoted to TXT. The JWS token is
-> >255 chars and trips Route 53's per-string TXT limit. dns-aid v0.21
-> doesn't auto-chunk TXT yet, so we publish unsigned. The audit chain
-> in challenge 3 reports this honestly as "JWS signature: not signed".
+## Inspect the published-contract documents
 
-## Load the env
+These live on S3 — the same docs every learner uses. The DNS-AID record
+you're about to publish will point at them. Read them first so you
+know what you're advertising:
 
 ```bash
 source /opt/lab/lab.env
-echo "subdomain  = ${SANDBOX_SLUG}.${ZONE}"
-echo "cap base   = ${CAP_BASE_URL}"
-```
 
-## Look at the public cap docs first
-
-These are the same for every learner — hosted on a separate AWS account
-on a public S3 bucket. Open them in your browser or curl:
-
-```bash
-# DNS-AID cap envelope (the document SVCB points at via cap_uri)
+# DNS-AID cap envelope (referenced by SVCB key65400 / TXT fallback)
 curl -s ${CAP_BASE_URL}/ip-reputation/v1.json | head -30
 
 # MCP Server Card per SEP-1649 (model's view of the server's tools)
@@ -76,12 +80,30 @@ curl -s ${CAP_BASE_URL}/ip-reputation/mcp-server-card.json | head -30
 curl -s ${CAP_BASE_URL}/ip-reputation/policy.json | head -30
 ```
 
-Notice: these are **MCP server cards**, not A2A agent cards. The
-`ip-reputation` capability is an MCP server (it exposes the `lookup_ip`
-tool over Streamable HTTP). A2A `agent-card.json` is a different
-discovery convention for peer-to-peer agents — not applicable here.
+> **Why MCP card, not A2A agent card?** ip-reputation is an MCP server
+> exposing the `lookup_ip` tool over Streamable HTTP. A2A `agent-card.json`
+> is a different convention for peer-to-peer agents — not used here.
 
-## Publish
+## Watch the translator + the gateway live
+
+Open **two terminal panes** if you can (Terminal tab has split support).
+
+Pane 1 — watch the translator:
+
+```bash
+docker logs -f translator
+```
+
+Pane 2 — watch the gateway routes update:
+
+```bash
+watch -n 1 'curl -s http://localhost:15000/api/routes 2>/dev/null | jq "{routes: [.[].route_name]}" 2>/dev/null'
+```
+
+Right now both panes show **0 routes**. The translator is polling DNS,
+finds nothing, pushes empty snapshots.
+
+## Publish — one DNS record, one route appears
 
 ```bash
 dns-aid publish \
@@ -98,51 +120,102 @@ dns-aid publish \
     --policy-uri "${CAP_BASE_URL}/ip-reputation/policy.json"
 ```
 
-What you just did:
+What just happened, in order:
 
-- `--endpoint fastmcp-ip-reputation --port 3000` → the actual backend container. The agentgateway xDS translator polls Route 53 every 5s, sees this SVCB record, and builds the route `/ip-reputation/mcp → fastmcp-ip-reputation:3000` in agentgateway dynamically. **No static config edits, no gateway restart.**
-- `--transport streamable-http` → plain HTTP (the lab gateway has no TLS)
-- `--cap-uri …/v1.json` → DNS-AID's `key65400` points at the public cap doc
-- `--policy-uri …/policy.json` → governance metadata (referenced by agents that respect policy)
+1. **dns-aid signed your record locally** (well — it would have, if Route 53
+   supported chunked TXT > 255 chars; we publish unsigned for now and report
+   the gap honestly in C3's audit chain).
+2. **dns-aid called Route 53** via `route53:ChangeResourceRecordSets` API.
+3. **Route 53 propagated** to its 4 authoritative name servers in seconds.
+4. **The translator's next poll cycle** (≤5s) finds the SVCB record.
+5. **The translator encodes** a `Backend` + `Route` + `Listener` + `Bind`
+   into protobuf, opens a Delta xDS push to agentgateway.
+6. **The gateway materializes** the new route. Now `/ip-reputation/mcp`
+   resolves to `fastmcp-ip-reputation:3000` from any client.
 
-## Verify
+## Verify the public DNS layer
+
+> Note on `dig +short SVCB`: some resolvers (notably Cloudflare 1.1.1.1)
+> return SVCB rdata in a form `+short` doesn't pretty-print. Use
+> `+noall +answer` for consistent output.
 
 ```bash
-# 1. Public DNS — Cloudflare, Quad9, Google — all should return the SVCB
-echo "── Cloudflare ──"
+echo "── Cloudflare (DNSSEC-validating) ──"
 dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
 
-echo "── Quad9 ──"
-dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @9.9.9.9
+echo "── DNSSEC AD flag (chain root → .com → ccdesanity.com → ${ZONE}) ──"
+dig +dnssec SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1 +noall +comments | grep flags
+# Expect:  ;; flags: qr rd ra ad   ← 'ad' = Authenticated Data = real DNSSEC validation
 
-echo "── Google ──"
-dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @8.8.8.8
-
-# 2. Cap_uri + policy_uri travel as TXT (Route 53 demotes from SVCB)
+echo "── TXT fallback (Route 53 demotes custom SVCB params to TXT) ──"
 dig +short TXT _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
-# You should see: capabilities=, version=, description=, dnsaid_key65400=…cap doc URL,
-#                 dnsaid_key65403=…policy URL
+# You should see capabilities=, version=, description=, dnsaid_key65400=…cap doc URL,
+# dnsaid_key65403=…policy URL
+```
 
-# 3. Local sandbox resolver (CoreDNS in docker, host port 5353)
-dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @127.0.0.1 -p 5353
+## Verify the xDS layer caught up
 
-# 4. dns-aid discover — fetches cap, surfaces parsed structure
+Within 5 seconds of publishing, the gateway should have a route:
+
+```bash
+sleep 6
+curl -s http://localhost:15000/api/routes | jq .
+
+# Or — try invoking. Now returns 200 instead of 404.
+curl -sw '\nHTTP %{http_code}\n' \
+    -X POST http://localhost:3000/ip-reputation/mcp \
+    -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' \
+    -H 'mcp-protocol-version: 2025-03-26' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"verify","version":"0"}}}'
+```
+
+Open the **agentgateway UI** tab → Routes section. You'll see
+`/ip-reputation/mcp` with backend `fastmcp-ip-reputation:3000`. **No
+human edited this config.** The DNS record + the translator did it.
+
+## Inspect the discovery view
+
+```bash
 dns-aid discover "${SANDBOX_SLUG}.${ZONE}"
 ```
 
-The `dns-aid discover` output should show:
-- `endpoint: agentgateway:3000` (from your SVCB)
-- `cap_uri: https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json` (fetches + JSON-parses)
-- `policy_uri:` referenced
-- `signature_verified: false` (this lab publishes unsigned — see note at top)
+Shows the agent record from DNS, including the cap_uri (S3 URL) and
+policy_uri. The agent in C3 will fetch these.
 
-## Why dig +noall +answer instead of +short
+## Try the demo's punchline — delete and watch the route vanish
 
-Some resolvers (notably Cloudflare 1.1.1.1) return SVCB rdata in a
-format that `dig +short` doesn't pretty-print. The record is *present*
-— look at the header `ANSWER: 1` — but `+short` shows nothing. Using
-`+noall +answer` works uniformly across Cloudflare, Quad9, and Google.
+> ⚠️ This deletes the record you just published. You'll need to
+> re-publish before moving to C3. Skip this if you want to keep moving.
+
+```bash
+# Delete via direct AWS CLI (dns-aid v0.21 doesn't yet expose delete in CLI)
+aws route53 change-resource-record-sets --hosted-zone-id ${ROUTE53_ZONE_ID} --change-batch "$(
+cat <<EOF
+{"Changes":[{"Action":"DELETE","ResourceRecordSet":$(
+  aws route53 list-resource-record-sets --hosted-zone-id ${ROUTE53_ZONE_ID} \
+    --query "ResourceRecordSets[?Name=='_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}.'&&Type=='SVCB'] | [0]"
+)}]}
+EOF
+)" >/dev/null
+
+sleep 6
+# Gateway has lost the route. Re-curl /ip-reputation/mcp → 404
+curl -sw '%{http_code}\n' -o /dev/null \
+    -X POST http://localhost:3000/ip-reputation/mcp \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+```
+
+That's the full story: DNS is the source of truth. Add a record →
+runtime has it. Remove a record → runtime forgets.
+
+## Re-publish if you deleted
+
+Re-run the `dns-aid publish` command from the top of this challenge to
+restore the record before moving to C3.
 
 ## Success
 
-Auto-completes when `_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}` SVCB record resolves on the public DNS.
+Auto-completes when the SVCB record resolves publicly. After publish,
+proceed to C3.
