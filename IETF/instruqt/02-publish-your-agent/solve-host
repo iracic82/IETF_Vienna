@@ -12,7 +12,7 @@ dns-aid publish \
     --name ip-reputation \
     --domain "${SANDBOX_SLUG}.${ZONE}" \
     --protocol mcp \
-    --endpoint agentgateway \
+    --endpoint fastmcp-ip-reputation \
     --port 3000 \
     --transport streamable-http \
     --capability ip-reputation \

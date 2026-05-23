@@ -34,21 +34,52 @@ services:
     depends_on: [event-hub]
     networks: [lab]
 
-  # ── 3. agentgateway: image as-is, config mounted from host ─────────
-  # Matches the proven pattern from DNS-AID/DEMO/agentgateway-2mcp/.
-  # bootstrap.sh renders ../../shared/agentgateway/rendered/config.yaml
-  # before docker compose up.
+  # ── 3a. dns-aid xDS translator — polls Route 53, pushes routes ─────
+  # Watches the per-sandbox DNS-AID zone for SVCB records and translates
+  # discovered agents into agentgateway xDS resources (Bind/Listener/
+  # Route/Backend) over Envoy v3 ADS. No static config in the gateway.
+  translator:
+    image: ghcr.io/iracic82/dns-aid-translator:0.3.0
+    container_name: translator
+    command:
+      - --mode=xds
+      - --domain=${SANDBOX_SLUG}.${ZONE:-lab.ccdesanity.com}
+      - --protocol=mcp
+      - --agents
+      - ip-reputation
+      - --dns-server=1.1.1.1
+      - --dns-port=53
+      - --xds-listen=0.0.0.0:18000
+      - --interval=5
+      - --log-level=INFO
+    ports:
+      - "18000:18000"    # xDS gRPC (mostly for debug visibility)
+    networks: [lab]
+
+  # ── 3b. agentgateway: xDS-driven (no static routes) ─────────────────
+  # Routes/backends are pushed by the translator over Envoy v3 ADS.
+  # Adding/removing a DNS-AID record materializes/removes a route in
+  # ~5s with no gateway restart. The static config file only sets the
+  # xdsAddress and admin/stats addresses.
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:latest
     container_name: agentgateway
     command: ["-f", "/etc/agentgateway/config.yaml"]
+    environment:
+      NAMESPACE: "default"
+      GATEWAY: "ietf-vienna"
+      NODE_NAME: "ietf-node"
+      NAME: "agentgateway"
+      INSTANCE_IPS: "127.0.0.1"
     volumes:
       - ../../shared/agentgateway/rendered/config.yaml:/etc/agentgateway/config.yaml:ro
     ports:
       - "3000:3000"      # caller-facing MCP traffic
       - "15000:15000"    # admin UI
       - "15020:15020"    # Prometheus stats
-    depends_on: [fastmcp-ip-reputation]
+    depends_on:
+      - translator
+      - fastmcp-ip-reputation
     networks: [lab]
 
   # ── 4. dns-aid-mcp: wrapped so events flow to the hub ───────────────

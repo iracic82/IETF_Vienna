@@ -88,7 +88,7 @@ dns-aid publish \
     --name ip-reputation \
     --domain "${SANDBOX_SLUG}.${ZONE}" \
     --protocol mcp \
-    --endpoint agentgateway \
+    --endpoint fastmcp-ip-reputation \
     --port 3000 \
     --transport streamable-http \
     --capability ip-reputation \
@@ -100,7 +100,7 @@ dns-aid publish \
 
 What you just did:
 
-- `--endpoint agentgateway --port 3000` → callable docker hostname inside the sandbox
+- `--endpoint fastmcp-ip-reputation --port 3000` → the actual backend container. The agentgateway xDS translator polls Route 53 every 5s, sees this SVCB record, and builds the route `/ip-reputation/mcp → fastmcp-ip-reputation:3000` in agentgateway dynamically. **No static config edits, no gateway restart.**
 - `--transport streamable-http` → plain HTTP (the lab gateway has no TLS)
 - `--cap-uri …/v1.json` → DNS-AID's `key65400` points at the public cap doc
 - `--policy-uri …/policy.json` → governance metadata (referenced by agents that respect policy)
