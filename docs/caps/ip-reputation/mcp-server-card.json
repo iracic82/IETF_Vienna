@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json",
+  "version": "1.0",
+  "protocolVersion": "2025-06-18",
+  "serverInfo": {
+    "name": "ip-reputation",
+    "title": "IP Reputation Threat-Intel Lookup",
+    "version": "1.0.0"
+  },
+  "description": "Federated threat-intelligence service: query a known-bad IP database and return verdict, confidence, and source attribution. Part of the IETF_Vienna DNS-AID demo federation.",
+  "iconUrl": "https://iracic82.github.io/IETF_Vienna/icons/shield.png",
+  "documentationUrl": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/ip-reputation/README.md",
+  "transport": {
+    "type": "streamable-http",
+    "endpoint": "/mcp"
+  },
+  "capabilities": {
+    "tools": {
+      "listChanged": false
+    }
+  },
+  "authentication": {
+    "required": false,
+    "schemes": []
+  },
+  "instructions": "Send tools/call with name=lookup_ip and arguments.ip=<IPv4 string>. Returns {verdict: clean|malicious|unknown, confidence: 0.0-1.0, sources: [string], tags: [string]}.",
+  "tools": [
+    {
+      "name": "lookup_ip",
+      "description": "Return federation reputation verdict for an IPv4 address.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ip": { "type": "string", "description": "IPv4 address" }
+        },
+        "required": ["ip"]
+      }
+    }
+  ]
+}

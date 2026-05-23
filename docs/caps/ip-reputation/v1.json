@@ -1,0 +1,30 @@
+{
+  "$schema": "https://iracic82.github.io/IETF_Vienna/schemas/dns-aid-cap/v1.json",
+  "spec_version": "1.0",
+  "agent": "ip-reputation",
+  "version": "1.0.0",
+  "protocol": "mcp",
+  "transport": "streamable-http",
+  "served_by": "https://s3.amazonaws.com/cap.workshop.highvelocitynetworking.com (Pattern B+ static external)",
+  "mcp_server_card": "https://cap.workshop.highvelocitynetworking.com/ip-reputation/mcp-server-card.json",
+  "agent_card": "https://cap.workshop.highvelocitynetworking.com/ip-reputation/agent-card.json",
+  "policy": "https://cap.workshop.highvelocitynetworking.com/ip-reputation/policy.json",
+  "policy_uri": "https://cap.workshop.highvelocitynetworking.com/ip-reputation/policy.json",
+  "capabilities": ["ip-reputation"],
+  "tools": [
+    {
+      "name": "lookup_ip",
+      "description": "Federation IP reputation lookup",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "ip": { "type": "string" } },
+        "required": ["ip"]
+      }
+    }
+  ],
+  "trust": {
+    "jws_signed": true,
+    "signer_hint": "k-ops-team-2026",
+    "jwks_uri": "https://cap.workshop.highvelocitynetworking.com/.well-known/jwks.json"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "policy_version": "1.0",
+  "agent": "ip-reputation",
+  "issued_at": "2026-05-23T00:00:00Z",
+  "issuer": {
+    "organization": "IETF_Vienna Demo Federation",
+    "kid": "k-ops-team-2026"
+  },
+  "data_classification": "public",
+  "allowed_methods": ["tools/list", "tools/call"],
+  "allowed_tools": ["lookup_ip"],
+  "rate_limits": {
+    "requests_per_minute": 60,
+    "requests_per_day": 10000
+  },
+  "input_constraints": {
+    "lookup_ip": {
+      "ip": {
+        "type": "string",
+        "format": "ipv4",
+        "reject_private": false,
+        "max_length": 15
+      }
+    }
+  },
+  "output_retention_days": 0,
+  "telemetry": {
+    "log_calls": true,
+    "log_results": false,
+    "report_to": "https://telemetry.workshop.highvelocitynetworking.com/v1/events"
+  },
+  "auth": {
+    "required": false,
+    "schemes": [],
+    "note": "Lab demo — production would require mTLS or OAuth2 bearer"
+  },
+  "governance": {
+    "owner_contact": "soc-federation@workshop.highvelocitynetworking.com",
+    "incident_response_runbook": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/ip-reputation/INCIDENT-RUNBOOK.md",
+    "data_protection_officer": "dpo@workshop.highvelocitynetworking.com"
+  }
+}
