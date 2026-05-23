@@ -44,7 +44,11 @@ cat > /etc/sudoers.d/student <<'EOF'
 # dns-aid / aws cli see DNS_AID_BACKEND, ROUTE53_ZONE_ID, etc.
 # Without this, sudo's default env_reset strips them and dns-aid
 # falls back to auto-detect (which doesn't find per-sandbox subdomains).
+#
+# set_home ensures HOME=/root when running as root, so boto3 finds
+# /root/.aws/credentials instead of /home/student/.aws/ (which is empty).
 Defaults env_keep += "DNS_AID_BACKEND ROUTE53_ZONE_ID HOSTED_ZONE_ID AWS_DEFAULT_REGION SANDBOX_SLUG ZONE CAP_BASE_URL SIGN_KEY SIGN_KID GOOGLE_CLOUD_PROJECT GOOGLE_APPLICATION_CREDENTIALS VERTEX_LOCATION"
+Defaults set_home
 
 student ALL=(root) NOPASSWD: /root/.local/bin/dns-aid *
 student ALL=(root) NOPASSWD: /root/.local/bin/dns-aid
