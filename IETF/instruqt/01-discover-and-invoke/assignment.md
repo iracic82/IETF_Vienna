@@ -84,23 +84,36 @@ You should see 8 containers:
 ## Prove the gateway is empty
 
 Before any DNS publish exists, the gateway has nothing to route to.
-Confirm:
+Two ways to confirm:
+
+**Way 1 — agentgateway UI tab.** Open it. You'll see:
+
+- A purple banner at the top that says:
+  > *"Configuration is managed by an external source (XDS). Editing the
+  > configuration is not allowed via the UI."*
+
+  **Read that banner carefully.** That's the gateway literally
+  telling you it doesn't own its routes — they come from xDS. No human
+  edits this UI. The translator pushes everything.
+
+- Sidebar counters: **Listeners 1**, **Routes 0**, **Backends 0**.
+
+  (Routes/backends will tick to 1 in C2 the moment you publish.)
+
+**Way 2 — terminal.**
 
 ```bash
-# 1. Open the agentgateway UI tab → Routes panel → "0 routes"
-#    Or via the admin API:
-curl -s http://localhost:15000/api/routes 2>&1 | head -20
-
-# 2. Try to invoke ip-reputation directly — 404
+# Try to invoke ip-reputation directly — 404 because no route exists
 curl -sw '%{http_code}\n' -o /dev/null \
     -X POST http://localhost:3000/ip-reputation/mcp \
     -H 'content-type: application/json' \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-# Expected: 404 (no route)
+# Expected: 404
 ```
 
 This is the **before** state. In challenge 2 you'll change it by
-publishing one DNS record.
+publishing one DNS record — and the UI's counters will tick up
+automatically.
 
 ## Read the agent code
 

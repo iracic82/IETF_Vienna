@@ -119,18 +119,92 @@ the flow graph animate through:
 Click any step in the flow graph — the right panel shows the actual
 request/response for that step.
 
-## Look at the agentgateway UI
+## Tour the agentgateway UI
 
-Open **agentgateway UI** tab. Navigate to Routes → `ip-reputation-mcp`.
-You'll see:
+Open the **agentgateway UI** tab. There are five pages worth visiting,
+and one banner worth re-reading.
 
-- Match: `/ip-reputation/mcp`
-- Backend: `fastmcp-ip-reputation:3000`
-- **Source: xDS (from translator)** — not from a static config file
+### 🟣 The banner at the top of every page
 
-This route exists because of a DNS record. Delete the record and within
-5 seconds the route is gone (you can demo this — see C2's optional
-section).
+> *"Configuration is managed by an external source (XDS). Editing the
+> configuration is not allowed via the UI."*
+
+This is THE proof of the architecture. Every other gateway UI you've
+ever seen lets you click "Add Route" or edit config. This one doesn't.
+The gateway is admitting: "my routes are pushed to me by xDS — I don't
+own them." DNS is the source of truth.
+
+### Home
+
+Sidebar shows: **Listeners 1**, **Routes 1**, **Backends 1**, **Policies 1**.
+
+That `1 route` and `1 backend` came from your `dns-aid publish` in C2.
+Delete the DNS record → numbers tick back to 0 within 5s.
+
+### Routes
+
+Click `ip-reputation-mcp`. You'll see:
+
+| Field | Value |
+|---|---|
+| Listener | `dnsaid-discovered` (the translator named it this) |
+| Port | 3000 |
+| Route Pattern | `/ip-reputation/mcp` *(exact match)* |
+| Backends | `fastmcp-ip-reputation:3000` |
+
+No human typed any of that. The translator built it from your SVCB
+record and pushed it via xDS Delta.
+
+### Backends
+
+Shows `fastmcp-ip-reputation:3000` as a static backend. **This is the
+SVCB target field from your DNS-AID record**, materialized as a
+gateway-facing backend. Trace it: `dig SVCB ...` → SVCB target →
+translator → backend in this UI.
+
+### Playground
+
+Interactive HTTP request tester. Try an MCP `initialize` without
+leaving the UI:
+
+- **Request URL:** `http://localhost:3000/ip-reputation/mcp`
+- **HTTP Method:** `POST`
+- **Headers tab:**
+  - `content-type: application/json`
+  - `accept: application/json, text/event-stream`
+  - `mcp-protocol-version: 2025-03-26`
+- **Body tab:**
+  ```json
+  {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"playground","version":"0"}}}
+  ```
+- Hit **Send**.
+
+You'll get a 200 response with the MCP server's `serverInfo`. This
+proves the round trip works end-to-end without the AI agent involved
+— the same path the agent uses in C3.
+
+### CEL Playground (foreshadowing)
+
+CEL = Common Expression Language. agentgateway can apply CEL filters
+to incoming requests. In IETF2 (the workshop) we'll use this to enforce
+the policy.json contract — for example, `request.method == "POST" &&
+request.path == "/ip-reputation/mcp" && request.headers["authorization"] != ""`.
+For now it's empty; in the workshop you'll write some.
+
+## The big takeaway
+
+This route exists because of a DNS record. Try the demo punchline:
+
+```bash
+# Delete the SVCB record
+aws route53 change-resource-record-sets --hosted-zone-id $ROUTE53_ZONE_ID \
+  --change-batch "$(aws route53 list-resource-record-sets --hosted-zone-id $ROUTE53_ZONE_ID \
+    --query "ResourceRecordSets[?Name=='_ip-reputation._mcp._agents.$SANDBOX_SLUG.$ZONE.'&&Type=='SVCB'] | [0] | {Changes:[{Action:'DELETE',ResourceRecordSet:@}]}")"
+
+# Within 5 seconds, refresh the agentgateway UI Routes page.
+# Routes count: 1 → 0. The route is gone.
+# Re-publish to continue with C3.
+```
 
 ## Bonus 1 — compare resolvers side by side
 
