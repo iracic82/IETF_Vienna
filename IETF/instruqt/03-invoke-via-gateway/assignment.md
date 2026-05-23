@@ -157,10 +157,47 @@ record and pushed it via xDS Delta.
 
 ### Backends
 
-Shows `fastmcp-ip-reputation:3000` as a static backend. **This is the
-SVCB target field from your DNS-AID record**, materialized as a
-gateway-facing backend. Trace it: `dig SVCB ...` → SVCB target →
-translator → backend in this UI.
+The backend `fastmcp-ip-reputation:3000` is here, but **the UI shows it
+labeled as "Unknown Backend" with Type "Unknown"** — that's an upstream
+agentgateway UI bug, not a problem with the backend itself.
+
+To see the real backend data the runtime knows about, hit the admin API:
+
+```bash
+curl -s http://localhost:15000/config_dump | python3 -m json.tool
+```
+
+In that JSON you'll see entries like:
+
+```json
+"backends": [
+  {
+    "backend": {
+      "mcp": {
+        "name": "ip-reputation-mcp",
+        "namespace": "default",
+        "target": {
+          "targets": [
+            { "name": "ip-reputation",
+              "mcp": { "backend": { "backend": "dnsaid-upstream-ip-reputation" },
+                       "path": "/mcp" }}
+          ]
+        }
+      }
+    }
+  }
+]
+```
+
+So the **MCP backend wrapping** the **static upstream** is correctly
+configured and named — the runtime sees it, the gateway routes through
+it, the proxy works. The "Unknown" label is purely a UI display bug
+(it walks `backend.mcp` instead of `backend.backend.mcp` and falls
+through to the default).
+
+**Trace the chain**: `dig SVCB ...` → SVCB target field → translator
+discovers it → translator pushes the Backend via xDS → gateway
+materializes it → `config_dump` shows it → invocation works through it.
 
 ### Playground (currently broken on xDS-bound routes)
 
