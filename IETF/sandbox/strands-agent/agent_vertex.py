@@ -46,7 +46,7 @@ PROJECT = os.environ["GOOGLE_CLOUD_PROJECT"]
 LOCATION = os.getenv("VERTEX_LOCATION", "us-east5")
 MODEL_ID = os.getenv("VERTEX_MODEL", "gemini-2.5-pro")
 SANDBOX_SLUG = os.environ.get("SANDBOX_SLUG", "test")
-ZONE = os.environ.get("ZONE", "iracictechguru.com")
+ZONE = os.environ.get("ZONE", "lab.ccdesanity.com")
 
 SYSTEM_PROMPT = f"""\
 You are an AI assistant for a SOC analyst. You participate in a federated
