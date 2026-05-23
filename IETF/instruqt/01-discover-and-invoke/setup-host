@@ -148,10 +148,12 @@ echo "[setup] GCP SA key:  ${GOOGLE_APPLICATION_CREDENTIALS} ($(wc -c < ${GOOGLE
 # ── 3. AWS + Route 53 env wiring.
 export AWS_ACCESS_KEY_ID="${DEMO_AWS_ACCESS_KEY_ID:?missing Instruqt secret}"
 export AWS_SECRET_ACCESS_KEY="${DEMO_AWS_SECRET_ACCESS_KEY:?missing Instruqt secret}"
-export HOSTED_ZONE_ID="${DEMO_HOSTED_ZONE_ID:?missing Instruqt secret}"
+export HOSTED_ZONE_ID="${AI_DNS_Zone_ID:?missing Instruqt secret AI_DNS_Zone_ID}"
 export AWS_DEFAULT_REGION=us-east-1
-# ZONE matches the Route 53 hosted zone behind DEMO_HOSTED_ZONE_ID.
-export ZONE="${ZONE:-iracictechguru.com}"
+# ZONE is the DNSSEC-signed lab subzone delegated from ccdesanity.com.
+# Full chain validates from root: . → com → ccdesanity.com → lab.ccdesanity.com.
+# dig +dnssec on this zone returns the AD (Authenticated Data) flag.
+export ZONE="${ZONE:-lab.ccdesanity.com}"
 export SANDBOX_SLUG
 
 # dns-aid backend wiring — student-runnable publish/discover commands will

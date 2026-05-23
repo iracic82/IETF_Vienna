@@ -3,7 +3,8 @@ slug: publish-your-agent
 id: 2kfzxpqcouix
 type: challenge
 title: 2. Publish your federation capability
-teaser: Publish the ip-reputation DNS-AID record pointing at externally-hosted cap docs in S3.
+teaser: Publish the ip-reputation DNS-AID record pointing at externally-hosted cap
+  docs in S3.
 notes:
 - type: text
   contents: |-

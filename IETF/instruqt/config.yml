@@ -22,4 +22,4 @@ gcp_projects:
 secrets:
 - name: DEMO_AWS_ACCESS_KEY_ID
 - name: DEMO_AWS_SECRET_ACCESS_KEY
-- name: DEMO_HOSTED_ZONE_ID
+- name: AI_DNS_Zone_ID
