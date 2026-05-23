@@ -2,10 +2,86 @@
 # Track-level setup. Fires ONCE when the entire track starts, before
 # any challenge's setup-host runs.
 #
-# We intentionally keep this empty: all heavy lifting (apt installs,
-# repo clone, docker compose, dns-aid install) is done in challenge 1's
-# setup-host so the install logic lives next to the challenge that
-# uses it. Track-level just confirms the placeholder is here.
-set -uo pipefail
-echo "[track-setup] IETF DNS-AID lab — starting"
+# Responsibility: create a non-root `student` user, set up sudoers,
+# and arrange for Instruqt's terminal tab (which opens as root) to
+# auto-drop the learner into the student shell. This way the AWS
+# credentials at /root/.aws/credentials cannot be read or escalated
+# to by the student.
+#
+# Heavy lifting (apt install, dns-aid install, repo clone, docker
+# compose up) still lives in challenge 1's setup-host since that's
+# where the lab's actual work begins. This script just prepares the
+# user / privilege boundary.
+set -euo pipefail
+
+echo "[track-setup] preparing student user + privilege boundary"
+
+# 1. Create student user (idempotent).
+if ! id student >/dev/null 2>&1; then
+    useradd -m -s /bin/bash student
+    echo "[track-setup] created user: student"
+fi
+
+# 2. Student gets the non-sensitive lab env auto-sourced + lands in
+#    the lab repo directory on shell open.
+mkdir -p /home/student
+if ! grep -q "source /opt/lab/lab.env" /home/student/.bashrc 2>/dev/null; then
+    {
+        echo ""
+        echo "# IETF_Vienna lab environment (non-sensitive vars only)"
+        echo "[ -f /opt/lab/lab.env ] && source /opt/lab/lab.env"
+        echo "cd /opt/lab/IETF_Vienna 2>/dev/null || true"
+    } >> /home/student/.bashrc
+fi
+
+# 3. Sudoers — student can run these specific lab binaries as root
+#    without password. Crucially blocks 'sudo cat', 'sudo bash',
+#    'sudo less' so credentials cannot be escalated to.
+apt-get install -y sudo >/dev/null 2>&1 || true
+cat > /etc/sudoers.d/student <<'EOF'
+# IETF lab — student may run these as root, nothing else.
+student ALL=(root) NOPASSWD: /root/.local/bin/dns-aid *
+student ALL=(root) NOPASSWD: /root/.local/bin/dns-aid
+student ALL=(root) NOPASSWD: /usr/local/bin/aws *
+student ALL=(root) NOPASSWD: /usr/local/bin/aws
+student ALL=(root) NOPASSWD: /usr/bin/docker *
+student ALL=(root) NOPASSWD: /usr/bin/docker
+student ALL=(root) NOPASSWD: /usr/local/bin/uv *
+EOF
+chmod 440 /etc/sudoers.d/student
+
+# 4. Aliases so common lab commands transparently sudo (zero UX
+#    impact — students type `dns-aid publish` as before).
+cat > /home/student/.bash_aliases <<'EOF'
+alias dns-aid='sudo /root/.local/bin/dns-aid'
+alias aws='sudo /usr/local/bin/aws'
+alias docker='sudo /usr/bin/docker'
+EOF
+
+if ! grep -q '.bash_aliases' /home/student/.bashrc; then
+    echo "[ -f ~/.bash_aliases ] && source ~/.bash_aliases" >> /home/student/.bashrc
+fi
+chown -R student:student /home/student
+
+# 5. Lock root home + AWS credentials from the student user.
+#    Root itself ignores these perms; only matters for non-root user.
+chmod 700 /root 2>/dev/null || true
+mkdir -p /root/.aws
+chmod 700 /root/.aws
+
+# 6. Auto-drop interactive terminals to the student shell so AWS
+#    keys at /root/.aws/credentials are unreachable from there.
+if ! grep -q "STUDENT_SHELL_ACTIVE" /root/.bashrc 2>/dev/null; then
+    cat >> /root/.bashrc <<'EOF'
+
+# Auto-switch to non-root `student` for interactive terminals so
+# secrets in /root/.aws/credentials cannot be read from the shell.
+if [ -t 0 ] && [ -z "$STUDENT_SHELL_ACTIVE" ] && id student >/dev/null 2>&1; then
+    export STUDENT_SHELL_ACTIVE=1
+    exec su - student
+fi
+EOF
+fi
+
+echo "[track-setup] student user + sudoers in place"
 exit 0
