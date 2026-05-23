@@ -19,7 +19,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
+import urllib.error
+import urllib.request
 from typing import Any
 
 # Vertex AI SDK
@@ -61,11 +64,14 @@ REQUIRED FLOW for IP queries:
             domain   = "{SANDBOX_SLUG}.{ZONE}"
             protocol = "mcp"
             name     = "ip-reputation"
-  Step 2. Read the SVCB record + cap doc fields from the result.
-          From the agent record you'll see fields like:
+          The wrapper auto-fetches the cap_uri (the published contract on
+          S3) and inlines `__cap_doc` into the result. Read it.
+  Step 2. Read the agent record. Expect these fields:
             signature_status   ("verified" | "unsigned" | "missing")
             signer_kid          (string if signature_status=="verified", else null)
             dnssec_status       ("ad" | "no-ad" | "unsigned-zone" | "unknown")
+            __cap_uri           the S3 URL the record points to
+            __cap_doc           the parsed JSON contents of that URL
   Step 3. Call call_agent_tool with:
             tool_name = "lookup_ip"
             arguments = {{"ip": "<analyst's IP>"}}
@@ -78,6 +84,8 @@ REQUIRED FLOW for IP queries:
             - SVCB record: _<name>._<proto>._agents.<domain>
             - DNSSEC: <ad-flag / not-enabled-in-lab>
             - JWS signature: <signer kid / "not signed (cap doc unsigned)">
+            - Cap doc: <__cap_uri> (fetched, agent=<__cap_doc.agent>, version=<__cap_doc.version>)
+            - Policy: <__cap_doc.policy_uri or "none">
             - Invoked via: <endpoint>
 
 HONEST REPORTING — if a trust signal is missing, say so explicitly.
@@ -86,6 +94,7 @@ Examples:
   - If signature_status=="verified" → "JWS signature: verified — signer <kid>"
   - If dnssec_status=="unsigned-zone" → "DNSSEC: not enabled in lab (parent zone unsigned)"
   - If dnssec_status=="ad" → "DNSSEC: validated (AD flag set on SVCB query)"
+  - If __cap_doc is null → "Cap doc: <url> (fetch failed)"
 
 If the federation says "unknown", REPORT unknown. If a tool fails, REPORT
 the error verbatim.
@@ -216,6 +225,50 @@ def _canonical_endpoint(raw: str | None, agent_name: str = "ip-reputation") -> s
     return raw
 
 
+# ── Cap doc fetch + enrichment ─────────────────────────────────────────
+# When the agent calls discover_agents_via_dns, we automatically GET the
+# cap_uri (S3) and inline the parsed JSON into the result the model sees.
+# This makes the S3 layer visibly part of the discovery flow — the model
+# reads the actual contract before invoking.
+
+_CAP_URL_RE = re.compile(r'https?://[^\s",}\]]+')
+
+
+def _extract_cap_uris(result_text: str) -> list[str]:
+    """Pull S3 cap doc URLs out of dns-aid discover's text output."""
+    return list({
+        url for url in _CAP_URL_RE.findall(result_text)
+        if "/v1.json" in url or "cap" in url.lower()
+    })
+
+
+def _fetch_cap_doc(url: str) -> dict | None:
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+        print(f"  [cap-fetch] FAILED {url}: {exc}")
+        return None
+
+
+def _enrich_with_cap_doc(name: str, result_text: str) -> str:
+    """If the tool was discover_agents_via_dns, fetch any cap URLs and
+    inline them as __cap_uri / __cap_doc fields the model can read."""
+    if name != "discover_agents_via_dns":
+        return result_text
+    cap_uris = _extract_cap_uris(result_text)
+    if not cap_uris:
+        return result_text
+    # Most labs have one cap_uri; if more, just fetch the first to keep
+    # the response payload small.
+    cap_uri = cap_uris[0]
+    print(f"  [cap-fetch] GET {cap_uri}")
+    cap_doc = _fetch_cap_doc(cap_uri)
+    enrichment = {"__cap_uri": cap_uri, "__cap_doc": cap_doc}
+    # Prepend enrichment as a JSON line so the model reliably parses it.
+    return json.dumps(enrichment, indent=2) + "\n\n--- raw discover output ---\n" + result_text
+
+
 # ── Async REPL ─────────────────────────────────────────────────────────
 async def main() -> None:
     vertexai.init(project=PROJECT, location=LOCATION)
@@ -303,6 +356,11 @@ async def main() -> None:
                                     else:
                                         pieces.append(str(block))
                                 result_text = "\n".join(pieces) or "[empty]"
+                                # If this was a discovery call, fetch the
+                                # cap doc (S3) and inline it into the
+                                # response the model receives. Makes the
+                                # S3 layer a visible part of the flow.
+                                result_text = _enrich_with_cap_doc(name, result_text)
                             except Exception as exc:
                                 result_text = json.dumps({"error": str(exc)})
                         # Print result so we see exactly what the model receives.
