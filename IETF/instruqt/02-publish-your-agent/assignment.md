@@ -254,26 +254,12 @@ policy_uri. The agent in C3 will fetch these.
 > re-publish before moving to C3. Skip this if you want to keep moving.
 
 ```bash
-# Delete the SVCB + TXT records for ip-reputation. dns-aid v0.21
-# doesn't yet expose a delete subcommand, so we drive Route 53
-# directly via the AWS CLI. Uses a temp JSON file to avoid the
-# nested-quote escaping that breaks one-liners.
-TARGET="_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}."
-
-for KIND in SVCB TXT; do
-    RRSET=$(aws route53 list-resource-record-sets --hosted-zone-id "${ROUTE53_ZONE_ID}" \
-        --query "ResourceRecordSets[?Name=='${TARGET}'&&Type=='${KIND}'] | [0]")
-    if [ "${RRSET}" != "null" ]; then
-        echo "{\"Changes\":[{\"Action\":\"DELETE\",\"ResourceRecordSet\":${RRSET}}]}" > /tmp/del.json
-        aws route53 change-resource-record-sets --hosted-zone-id "${ROUTE53_ZONE_ID}" \
-            --change-batch file:///tmp/del.json --query 'ChangeInfo.Status' --output text
-        echo "  ✓ deleted ${KIND}"
-    fi
-done
-rm -f /tmp/del.json
+# One-shot delete (pulled from the repo so terminal paste can't mangle
+# multi-line bash). Deletes the SVCB + TXT records for ip-reputation.
+curl -sSL https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/scripts/delete-ip-reputation-record.sh | bash
 
 # Within ~5s the translator polls Route 53, sees the record is gone,
-# and removes the route from agentgateway. Confirm with a curl 404:
+# and removes the route from agentgateway. Confirm with curl 404:
 sleep 6
 curl -sw '%{http_code}\n' -o /dev/null \
     -X POST http://localhost:3000/ip-reputation/mcp \

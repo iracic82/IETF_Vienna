@@ -247,21 +247,9 @@ For now it's empty; in the workshop you'll write some.
 This route exists because of a DNS record. Try the demo punchline:
 
 ```bash
-# Delete both SVCB + TXT records for ip-reputation. Uses a temp JSON
-# file to avoid nested-quote issues that broke earlier one-liners.
-TARGET="_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}."
-
-for KIND in SVCB TXT; do
-    RRSET=$(aws route53 list-resource-record-sets --hosted-zone-id "${ROUTE53_ZONE_ID}" \
-        --query "ResourceRecordSets[?Name=='${TARGET}'&&Type=='${KIND}'] | [0]")
-    if [ "${RRSET}" != "null" ]; then
-        echo "{\"Changes\":[{\"Action\":\"DELETE\",\"ResourceRecordSet\":${RRSET}}]}" > /tmp/del.json
-        aws route53 change-resource-record-sets --hosted-zone-id "${ROUTE53_ZONE_ID}" \
-            --change-batch file:///tmp/del.json --query 'ChangeInfo.Status' --output text
-        echo "  ✓ deleted ${KIND}"
-    fi
-done
-rm -f /tmp/del.json
+# One-shot delete (pulled from the repo so terminal paste can't mangle
+# multi-line bash). Deletes the SVCB + TXT records for ip-reputation.
+curl -sSL https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/scripts/delete-ip-reputation-record.sh | bash
 
 # Within ~5s the translator notices the absence and removes the route.
 # Refresh the agentgateway UI Routes page: count 1 → 0.
