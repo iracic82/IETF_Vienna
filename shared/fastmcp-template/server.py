@@ -199,12 +199,23 @@ def _tool_defs() -> list[dict]:
     return out
 
 
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS, DELETE",
+    "Access-Control-Allow-Headers": "content-type, authorization, mcp-protocol-version, accept",
+    "Access-Control-Expose-Headers": "Mcp-Session-Id",
+    "Access-Control-Max-Age": "86400",
+}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _write_json(self, code: int, body: dict, extra_headers: dict | None = None) -> None:
         data = json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        for k, v in CORS_HEADERS.items():
+            self.send_header(k, v)
         if extra_headers:
             for k, v in extra_headers.items():
                 self.send_header(k, v)
@@ -213,6 +224,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         return  # quieter logs
+
+    def do_OPTIONS(self):
+        # CORS preflight — agentgateway forwards OPTIONS rather than
+        # synthesizing a preflight response, so handle it here.
+        self.send_response(204)
+        for k, v in CORS_HEADERS.items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self):
         if self.path == "/healthz":
