@@ -55,8 +55,11 @@ knowledge of any IP — every fact must come from a tool call.
 
 ## Ask a real question
 
+Click ▶ to send the question to the running agent — the command pipes
+the prompt into the strands-agent REPL and prints the full reply.
+
 ```run
-Is 185.220.101.45 malicious?
+docker exec -i strands-agent python /app/agent.py <<< "Is 185.220.101.45 malicious?"
 ```
 
 Watch the terminal as the agent works. You'll see exactly this sequence:
@@ -98,7 +101,7 @@ corresponds to a verifiable observation.
 ## Try a known-clean IP
 
 ```run
-What about 8.8.8.8?
+docker exec -i strands-agent python /app/agent.py <<< "What about 8.8.8.8?"
 ```
 
 Should return clean with confidence 0.99, source `google-public-dns`.
@@ -136,29 +139,18 @@ comes from xDS, I don't own it." DNS is the source of truth.
 
 ### Listeners
 
-```
-1 port bind  •  1 listener
-Port 3000
-  Name        Protocol  Hostname  Endpoint         Backends    TLS    Policies
-  listener-1  HTTP      *         http://*:3000    1 backend   TLS    View Policies
-   (unnamed)
-```
+![Listeners page](https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/IETF/instruqt/assets/c3/listeners.png)
 
-That `listener-1` was pushed by the xDS translator. The `*` hostname
-means the listener accepts all virtual hosts (path-mode routing).
+`listener-1` was pushed by the xDS translator. The `*` hostname means
+the listener accepts all virtual hosts (path-mode routing).
 
 ### Routes
 
-```
-1 HTTP route  •  0 TCP routes  •  1 bind with routes
-Port 3000 (1 HTTP)
-  Name           Type   Listener  Hostnames   Path                Backends
-  ip-reputation  HTTP   unnamed   *           = /ip-reputation/mcp  1 backend
-```
+![Routes page](https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/IETF/instruqt/assets/c3/routes.png)
 
 The `=` before `/ip-reputation/mcp` means **exact match** (not prefix).
-Translator generates this from the SVCB `_ip-reputation._mcp._agents`
-record — no human typed it.
+Translator generates this from your published SVCB record — no human
+typed it.
 
 ### Backends
 
@@ -259,20 +251,27 @@ For now it's empty; in the workshop you'll write some.
 This route exists because of a DNS record. Try the demo punchline:
 
 ```run
-# One-shot delete (pulled from the repo so terminal paste can't mangle
-# multi-line bash). Deletes the SVCB + TXT records for ip-reputation.
 curl -sSL https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/scripts/delete-ip-reputation-record.sh | bash
-
-# Within ~5s the translator notices the absence and removes the route.
-# Refresh the agentgateway UI Routes page: count 1 → 0.
-# Re-publish (C2 publish command) to continue with C3.
 ```
+
+Within ~30s the translator notices the absence and removes the route.
+Verify with a POST — should return `route not found`:
+
+```run
+curl http://localhost:3000/ip-reputation/mcp -X POST -H 'content-type:application/json' -d '{}'
+```
+
+Expected terminal output:
+
+![Delete + 404 verification](https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/IETF/instruqt/assets/c3/delete-vanish.png)
+
+Refresh the **agentgateway UI Routes** page — Routes count 1 → 0.
+Re-publish the C2 command to restore them before moving on.
 
 ## Bonus 1 — compare resolvers side by side
 
 ```run
 source /opt/lab/lab.env
-
 for r in 1.1.1.1 9.9.9.9 8.8.8.8; do
     printf "%-10s " "$r"
     dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @$r | tail -1
@@ -285,13 +284,17 @@ for r in 1.1.1.1 9.9.9.9 8.8.8.8; do
 done
 ```
 
+Expected output (note `ad` flag set on every resolver):
+
+![Resolver comparison — AD flag everywhere](https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/IETF/instruqt/assets/c3/resolver-compare.png)
+
 This is the cryptographic chain working — same record, same signature,
 validated by three independent resolvers.
 
 ## Bonus 2 — what happens if you ask about a totally unknown IP
 
 ```run
-Is 203.0.113.99 malicious?
+docker exec -i strands-agent python /app/agent.py <<< "Is 203.0.113.99 malicious?"
 ```
 
 The lookup DB doesn't know about that IP. Watch the agent honestly
