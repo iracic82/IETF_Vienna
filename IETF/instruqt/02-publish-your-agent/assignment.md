@@ -15,7 +15,11 @@ notes:
     federations.
 tabs:
 - id: mxmrbnn0bk7x
-  title: Terminal
+  title: Terminal 1
+  type: terminal
+  hostname: host
+- id: c2term2x9k7y
+  title: Terminal 2
   type: terminal
   hostname: host
 - id: tlrymxfxefkc
@@ -87,15 +91,18 @@ curl -s ${CAP_BASE_URL}/ip-reputation/policy.json | head -30
 
 ## Watch the translator + the gateway live
 
-Open **two terminal panes** if you can (Terminal tab has split support).
+You have **two terminal tabs** (Terminal 1 + Terminal 2) so you can
+publish in one and watch live updates in the other.
 
-Pane 1 — watch the translator:
+In **Terminal 2** — watch the translator:
 
 ```bash
 docker logs -f translator
 ```
 
-Pane 2 — watch the gateway routes update:
+Back in **Terminal 1** you'll run the publish next. (Optionally you
+can use a `watch` loop in Terminal 2 to see the gateway routes update
+in real time:)
 
 ```bash
 watch -n 1 'curl -s http://localhost:15000/api/routes 2>/dev/null | jq "{routes: [.[].route_name]}" 2>/dev/null'

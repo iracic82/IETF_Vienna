@@ -121,83 +121,95 @@ request/response for that step.
 
 ## Tour the agentgateway UI
 
-Open the **agentgateway UI** tab. There are five pages worth visiting,
-and one banner worth re-reading.
+Open the **agentgateway UI** tab. Five sidebar pages to visit, plus
+one banner at the top that's worth re-reading.
 
-### 🟣 The banner at the top of every page
+### 🟣 The purple banner
 
 > *"Configuration is managed by an external source (XDS). Editing the
 > configuration is not allowed via the UI."*
 
 This is THE proof of the architecture. Every other gateway UI you've
-ever seen lets you click "Add Route" or edit config. This one doesn't.
-The gateway is admitting: "my routes are pushed to me by xDS — I don't
-own them." DNS is the source of truth.
+ever seen lets you click "Add Route" / "Add Backend". This one doesn't —
+the buttons are greyed out. The gateway is openly admitting: "my topology
+comes from xDS, I don't own it." DNS is the source of truth.
 
-### Home
+### Listeners
 
-Sidebar shows: **Listeners 1**, **Routes 1**, **Backends 1**, **Policies 1**.
+```
+1 port bind  •  1 listener
+Port 3000
+  Name        Protocol  Hostname  Endpoint         Backends    TLS    Policies
+  listener-1  HTTP      *         http://*:3000    1 backend   TLS    View Policies
+   (unnamed)
+```
 
-That `1 route` and `1 backend` came from your `dns-aid publish` in C2.
-Delete the DNS record → numbers tick back to 0 within 5s.
+That `listener-1` was pushed by the xDS translator. The `*` hostname
+means the listener accepts all virtual hosts (path-mode routing).
 
 ### Routes
 
-Click `ip-reputation-mcp`. You'll see:
+```
+1 HTTP route  •  0 TCP routes  •  1 bind with routes
+Port 3000 (1 HTTP)
+  Name           Type   Listener  Hostnames   Path                Backends
+  ip-reputation  HTTP   unnamed   *           = /ip-reputation/mcp  1 backend
+```
 
-| Field | Value |
-|---|---|
-| Listener | `dnsaid-discovered` (the translator named it this) |
-| Port | 3000 |
-| Route Pattern | `/ip-reputation/mcp` *(exact match)* |
-| Backends | `fastmcp-ip-reputation:3000` |
-
-No human typed any of that. The translator built it from your SVCB
-record and pushed it via xDS Delta.
+The `=` before `/ip-reputation/mcp` means **exact match** (not prefix).
+Translator generates this from the SVCB `_ip-reputation._mcp._agents`
+record — no human typed it.
 
 ### Backends
 
-The backend `fastmcp-ip-reputation:3000` is here, but **the UI shows it
-labeled as "Unknown Backend" with Type "Unknown"** — that's an upstream
-agentgateway UI bug, not a problem with the backend itself.
+```
+1 total backend
+Port 3000  •  1 UNKNOWN
+  Name              Type      Listener  Route          Weight
+  Unknown Backend   Unknown   unnamed   ip-reputation  1
+```
 
-To see the real backend data the runtime knows about, hit the admin API:
+The route IS attached to a backend (the proxy works — you just saw it
+in C3 above), but the UI shows `Name: Unknown Backend` and `Type:
+Unknown` because of an upstream UI bug. To see the real data:
 
 ```bash
 curl -s http://localhost:15000/config_dump | python3 -m json.tool
 ```
 
-In that JSON you'll see entries like:
-
-```json
-"backends": [
-  {
-    "backend": {
-      "mcp": {
-        "name": "ip-reputation-mcp",
-        "namespace": "default",
-        "target": {
-          "targets": [
-            { "name": "ip-reputation",
-              "mcp": { "backend": { "backend": "dnsaid-upstream-ip-reputation" },
-                       "path": "/mcp" }}
-          ]
-        }
-      }
-    }
-  }
-]
-```
-
-So the **MCP backend wrapping** the **static upstream** is correctly
-configured and named — the runtime sees it, the gateway routes through
-it, the proxy works. The "Unknown" label is purely a UI display bug
-(it walks `backend.mcp` instead of `backend.backend.mcp` and falls
-through to the default).
+You'll see the MCP-wrapper backend properly named `ip-reputation-mcp`,
+the static backend named `dnsaid-upstream-ip-reputation`, and the
+target list pointing at the actual fastmcp container. The runtime is
+correct; only the UI label is wrong.
 
 **Trace the chain**: `dig SVCB ...` → SVCB target field → translator
-discovers it → translator pushes the Backend via xDS → gateway
-materializes it → `config_dump` shows it → invocation works through it.
+polls it → translator pushes Backend via xDS → gateway materializes
+it → `config_dump` shows it → your invocation in C3 routed through it.
+
+### Policies
+
+```
+Applied policies (non-inline)
+  No non-route applied policies found.
+
+Port 3000  •  1 route available
+  Route          Type   Listener   Path/Hostnames        Policies
+  ip-reputation  HTTP   Unnamed    /ip-reputation/mcp    0 policies
+```
+
+The "0 policies" count is misleading — the CORS policy IS attached
+inline to the route (visible in `config_dump` under
+`routes[].inlinePolicies[].cors`), but the UI counts it as 0 because
+it only counts "non-inline" attached policies (a separate object type
+not used here). This is another agentgateway UI nuance, not a missing
+policy. Verify the CORS works:
+
+```bash
+curl -i -X OPTIONS http://localhost:3000/ip-reputation/mcp \
+    -H "Origin: http://localhost:15000" \
+    -H "Access-Control-Request-Method: POST" 2>&1 | head -12
+# Look for access-control-allow-origin: * in the response
+```
 
 ### Playground (currently broken on xDS-bound routes)
 
