@@ -119,10 +119,10 @@ dns-aid publish \
     --description "Threat-intel federation: IP reputation lookup" \
     --cap-uri    "${CAP_BASE_URL}/ip-reputation/v1.json" \
     --policy-uri "${CAP_BASE_URL}/ip-reputation/policy.json" \
-    --ttl 15
+    --ttl 30
 ```
 
-> **Why `--ttl 15`:** when you delete this record later (C3 punchline),
+> **Why `--ttl 30`:** when you delete this record later (C3 punchline),
 > downstream resolvers (1.1.1.1, 9.9.9.9, local CoreDNS) keep serving
 > the cached answer until the TTL expires. With the dns-aid default
 > TTL=3600, deletes would take an hour to propagate — invisible in a
