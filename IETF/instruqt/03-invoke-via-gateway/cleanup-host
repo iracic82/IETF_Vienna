@@ -1,5 +1,5 @@
 #!/bin/bash
-set -uo pipefail
-LAB_DIR="/opt/lab/IETF_Vienna"
-[ -d "${LAB_DIR}/IETF/sandbox" ] && (cd "${LAB_DIR}/IETF/sandbox" && bash teardown.sh || true)
+# No-op on per-challenge transition. Definitive cleanup of DNS
+# records is in track_scripts/cleanup-host; containers go away
+# with the sandbox VM at track end.
 exit 0

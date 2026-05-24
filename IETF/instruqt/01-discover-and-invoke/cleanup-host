@@ -1,10 +1,7 @@
 #!/bin/bash
-# Clean up sandbox-local DNS records on teardown.
-set -uo pipefail
-
-LAB_DIR="/opt/lab/IETF_Vienna"
-if [ -d "${LAB_DIR}/IETF/sandbox" ]; then
-    cd "${LAB_DIR}/IETF/sandbox"
-    bash teardown.sh || true
-fi
+# No-op on per-challenge transition. C2 + C3 depend on the sandbox
+# stack started in C1 setup-host — we must NOT docker-compose-down
+# between challenges. Containers go away naturally when the sandbox
+# VM is destroyed at track end. DNS records are cleaned by
+# track_scripts/cleanup-host.
 exit 0
