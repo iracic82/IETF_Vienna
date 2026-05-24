@@ -11,6 +11,7 @@ export type FlowStepKind =
   | "dns_response"
   | "cap_fetch"
   | "jws_verify"
+  | "xds_push"
   | "mcp_open"
   | "mcp_call"
   | "mcp_response"
@@ -25,7 +26,7 @@ export type FlowStep = {
   detail: {
     title: string;
     rightPaneTabs: ("request" | "response" | "signature" | "trust")[];
-    sampleRequest?: string;       // syntax-highlighted in right pane
+    sampleRequest?: string;
     sampleResponse?: string;
     sampleSignature?: string;
     sampleTrust?: string;
@@ -42,28 +43,40 @@ export type Flow = {
 };
 
 // ──────────────────────────────────────────────────────────────────────
-// IETF flow: ip-reputation discovery + invocation (9 steps)
+// IETF flow: ip-reputation discovery + invocation (10 steps)
+//
+// Reflects the current architecture:
+//   - Zone: lab.ccdesanity.com (DNSSEC chain validates from root)
+//   - Per-sandbox slug subdomain: <slug>.lab.ccdesanity.com
+//   - Cap docs on S3: ietf-vienna-cap-docs.s3.amazonaws.com
+//   - Model: Vertex Gemini 2.5 Pro (direct, no Strands wrapper)
+//   - Translator: ghcr.io/iracic82/dns-aid-translator:0.3.0
+//     polls Route 53 → emits Bind/Listener/Route/Backend via Envoy v3 ADS
+//   - agentgateway: xDS-driven, ZERO static routes
+//   - Path mode: POST /<agent>/mcp → fastmcp-<agent>:3000
+//   - JWS: not signed in this lab (Route 53 TXT 255-char limit; honest report)
 // ──────────────────────────────────────────────────────────────────────
 
 const IETF_NODES: Node[] = [
-  { id: "strands",    position: { x:   0, y:   0 }, data: { label: "Strands\nclaude-sonnet-4-6" }, type: "explorer" },
+  { id: "agent",      position: { x:   0, y:   0 }, data: { label: "Vertex Gemini\nstrands-agent" }, type: "explorer" },
   { id: "dns-aid",    position: { x: 240, y:   0 }, data: { label: "dns-aid MCP" }, type: "explorer" },
-  { id: "coredns",    position: { x: 480, y:   0 }, data: { label: "CoreDNS\nrecursive + RPZ" }, type: "explorer" },
-  { id: "route53",    position: { x: 720, y:   0 }, data: { label: "Route 53\nauth + DNSSEC" }, type: "explorer" },
-  { id: "cap-store",  position: { x: 480, y: 160 }, data: { label: "Cap doc store\n(gateway)" }, type: "explorer" },
-  { id: "jwks",       position: { x: 720, y: 160 }, data: { label: ".well-known\n/jwks.json" }, type: "explorer" },
-  { id: "gateway",    position: { x: 240, y: 320 }, data: { label: "agentgateway\npath route" }, type: "explorer" },
+  { id: "coredns",    position: { x: 480, y:   0 }, data: { label: "CoreDNS\nlocal resolver" }, type: "explorer" },
+  { id: "route53",    position: { x: 720, y:   0 }, data: { label: "Route 53\nlab.ccdesanity.com (DNSSEC)" }, type: "explorer" },
+  { id: "cap-s3",     position: { x: 240, y: 160 }, data: { label: "S3 cap doc\nietf-vienna-cap-docs" }, type: "explorer" },
+  { id: "translator", position: { x: 480, y: 160 }, data: { label: "xDS translator\npolls Route 53" }, type: "explorer" },
+  { id: "gateway",    position: { x: 240, y: 320 }, data: { label: "agentgateway\nxDS-driven, path-mode" }, type: "explorer" },
   { id: "fastmcp",    position: { x: 480, y: 320 }, data: { label: "FastMCP\nip-reputation" }, type: "explorer" },
 ];
 
 const IETF_EDGES: Edge[] = [
-  { id: "e1", source: "strands",   target: "dns-aid",    animated: true },
-  { id: "e2", source: "dns-aid",   target: "coredns",    animated: true },
-  { id: "e3", source: "coredns",   target: "route53",    animated: true },
-  { id: "e4", source: "dns-aid",   target: "cap-store",  animated: true },
-  { id: "e5", source: "cap-store", target: "jwks",       animated: true },
-  { id: "e6", source: "strands",   target: "gateway",    animated: true },
-  { id: "e7", source: "gateway",   target: "fastmcp",    animated: true },
+  { id: "e1", source: "agent",      target: "dns-aid",    animated: true, label: "tool call" },
+  { id: "e2", source: "dns-aid",    target: "coredns",    animated: true, label: "SVCB query" },
+  { id: "e3", source: "coredns",    target: "route53",    animated: true, label: "auth" },
+  { id: "e4", source: "agent",      target: "cap-s3",     animated: true, label: "fetch v1.json" },
+  { id: "e5", source: "route53",    target: "translator", animated: true, label: "polled" },
+  { id: "e6", source: "translator", target: "gateway",    animated: true, label: "xDS push" },
+  { id: "e7", source: "agent",      target: "gateway",    animated: true, label: "MCP call" },
+  { id: "e8", source: "gateway",    target: "fastmcp",    animated: true, label: "proxy" },
 ];
 
 export const IETF_FLOW: Flow = {
@@ -74,7 +87,7 @@ export const IETF_FLOW: Flow = {
   edges: IETF_EDGES,
   steps: [
     {
-      id: "1", label: "User asks", nodeId: "strands", kind: "tool_call",
+      id: "1", label: "User asks", nodeId: "agent", kind: "tool_call",
       detail: {
         title: "Step 1 — Analyst asks the assistant",
         rightPaneTabs: ["request"],
@@ -82,71 +95,80 @@ export const IETF_FLOW: Flow = {
       },
     },
     {
-      id: "2", label: "Tool selection", nodeId: "strands", edgeFrom: "e1", kind: "tool_call",
+      id: "2", label: "Discover tool call", nodeId: "agent", edgeFrom: "e1", kind: "tool_call",
       detail: {
-        title: "Step 2 — Strands selects discover_agents_via_dns",
+        title: "Step 2 — Gemini selects discover_agents_via_dns",
         rightPaneTabs: ["request"],
-        sampleRequest: 'tools/call {\n  "name": "discover_agents_via_dns",\n  "arguments": {\n    "domain": "${SLUG}.workshop.highvelocitynetworking.com",\n    "protocol": "mcp",\n    "name": "ip-reputation"\n  }\n}',
+        sampleRequest: 'tools/call {\n  "name": "discover_agents_via_dns",\n  "arguments": {\n    "domain": "${SLUG}.lab.ccdesanity.com",\n    "protocol": "mcp",\n    "name": "ip-reputation"\n  }\n}',
       },
     },
     {
-      id: "3", label: "DNSSEC query", nodeId: "coredns", edgeFrom: "e2", kind: "dns_query",
+      id: "3", label: "DNSSEC SVCB query", nodeId: "coredns", edgeFrom: "e2", kind: "dns_query",
       detail: {
-        title: "Step 3 — dig +dnssec SVCB",
+        title: "Step 3 — dig +dnssec SVCB via CoreDNS → Route 53",
         rightPaneTabs: ["request", "response", "trust"],
-        sampleRequest: 'dig +dnssec SVCB _ip-reputation._mcp._agents.${SLUG}.workshop.highvelocitynetworking.com',
-        sampleResponse: ';; flags: qr rd ra AD ◄── DNSSEC validated\n_ip-reputation._mcp._agents.${SLUG}... SVCB\n  1 gw.${SLUG}.workshop.hvn.com.\n  alpn="mcp,h2" port=3000\n  key65400="https://gw.${SLUG}.../ip-reputation/cap.json"\n  key65401="<cap-sha256>"\n  key65404="workshop"',
-        sampleTrust: '. → workshop.hvn.com → ${SLUG}.workshop.hvn.com\n✓ DS    ✓ DNSKEY    ✓ RRSIG    ✓ AD',
+        sampleRequest: 'dig +dnssec SVCB _ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com',
+        sampleResponse: ';; flags: qr rd ra ad ◄── DNSSEC validated\n_ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com. 30 IN SVCB\n  1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000\n\nTXT companion records (Route 53 demotes custom SvcParams to TXT):\n  "dnsaid_key65400=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json"\n  "dnsaid_key65403=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json"',
+        sampleTrust: '. → com → ccdesanity.com → lab.ccdesanity.com\n✓ DS at .com TLD (KSK 39752)\n✓ DS at ccdesanity.com  (KSK 9396)\n✓ DNSKEY + RRSIG verified\n✓ AD flag returned by Cloudflare 1.1.1.1',
       },
     },
     {
-      id: "4", label: "Cap doc fetch", nodeId: "cap-store", edgeFrom: "e4", kind: "cap_fetch",
+      id: "4", label: "Cap doc fetch (S3)", nodeId: "cap-s3", edgeFrom: "e4", kind: "cap_fetch",
       detail: {
-        title: "Step 4 — GET cap doc through gateway",
+        title: "Step 4 — agent_vertex wrapper GETs cap_uri from S3",
         rightPaneTabs: ["request", "response"],
-        sampleRequest: 'GET https://gw.${SLUG}.workshop.hvn.com/ip-reputation/cap.json',
-        sampleResponse: '{\n  "agent": "ip-reputation",\n  "version": "1.0.0",\n  "tools": ["lookup_ip"],\n  "auth": {"type": "none"},\n  "policy_uri": "https://policies.workshop.hvn.com/ip-rep"\n}\n\nsha256: a7c2f9d1...  (matches SVCB key65401 ✓)',
+        sampleRequest: 'GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json',
+        sampleResponse: '{\n  "agent": "ip-reputation",\n  "version": "1.0.0",\n  "protocol": "mcp",\n  "transport": "streamable-http",\n  "mcp_server_card": "…/mcp-server-card.json",\n  "policy_uri": "…/policy.json",\n  "tools": [{"name": "lookup_ip", ...}]\n}\n\nReferenced via dnsaid_key65400 TXT record above ✓',
       },
     },
     {
-      id: "5", label: "JWS verify", nodeId: "jwks", edgeFrom: "e5", kind: "jws_verify",
+      id: "5", label: "JWS check (honest)", nodeId: "cap-s3", kind: "jws_verify",
       detail: {
-        title: "Step 5 — Verify JWS signature on cap doc",
+        title: "Step 5 — JWS signature check on cap doc",
         rightPaneTabs: ["signature", "trust"],
-        sampleSignature: 'JWS header:\n  alg: RS256\n  kid: k-ops-team-2026\n  typ: dns-aid-cap+jws\n\nSignature verified ✓ with k-ops-team-2026 (from JWKS)',
-        sampleTrust: 'Signer: k-ops-team-2026 (federation ops team)\nStatus: ACTIVE, not revoked\nTrust:  ✓ in published JWKS',
+        sampleSignature: 'Lab publishes UNSIGNED (no JWS):\n  Reason: Route 53 demotes JWS to TXT; JWS token >255 chars exceeds\n  Route 53\'s per-string TXT limit. dns-aid v0.21 does not yet auto-\n  chunk TXT, so we publish without --sign.\n\nProduction federations would publish signed cap docs and verify here\nwith the published JWKS (k-ops-team-2026 etc.).',
+        sampleTrust: 'Audit chain reports: "JWS signature: not signed (cap doc unsigned)"\nHONEST: integrity gap visible to the analyst, not silently glossed over.',
       },
     },
     {
-      id: "6", label: "MCP open", nodeId: "gateway", edgeFrom: "e6", kind: "mcp_open",
+      id: "6", label: "xDS push", nodeId: "translator", edgeFrom: "e5", kind: "xds_push",
       detail: {
-        title: "Step 6 — Open MCP connection through agentgateway",
+        title: "Step 6 — Translator polls Route 53, pushes Route/Backend via xDS",
+        rightPaneTabs: ["request", "response"],
+        sampleRequest: 'Translator poll (every 5s):\n  dig SVCB _ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com @coredns\n\nResult: SVCB record present (or absent → triggers route removal)',
+        sampleResponse: 'Envoy v3 ADS DeltaDiscoveryResponse:\n  Bind     (port 3000)\n  Listener (dnsaid-discovered)\n  Route    (/ip-reputation/mcp exact → MCP backend)\n  Backend  (mcp wrapper)\n  Backend  (static → fastmcp-ip-reputation:3000)\n\nGateway materialises the new route in <1s after the push.',
+      },
+    },
+    {
+      id: "7", label: "MCP initialize", nodeId: "gateway", edgeFrom: "e7", kind: "mcp_open",
+      detail: {
+        title: "Step 7 — call_agent_tool opens MCP through agentgateway",
         rightPaneTabs: ["request"],
-        sampleRequest: 'POST https://gw.${SLUG}.workshop.hvn.com/ip-reputation/mcp\nContent-Type: application/json\n\n{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "initialize",\n  "params": {"protocolVersion": "2025-03-26"}\n}',
+        sampleRequest: 'POST http://agentgateway:3000/ip-reputation/mcp\nContent-Type: application/json\nAccept: application/json, text/event-stream\nMCP-Protocol-Version: 2025-03-26\n\n{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "initialize",\n  "params": {"protocolVersion": "2025-03-26"}\n}',
       },
     },
     {
-      id: "7", label: "tools/call", nodeId: "fastmcp", edgeFrom: "e7", kind: "mcp_call",
+      id: "8", label: "tools/call lookup_ip", nodeId: "fastmcp", edgeFrom: "e8", kind: "mcp_call",
       detail: {
-        title: "Step 7 — Invoke lookup_ip",
+        title: "Step 8 — Invoke lookup_ip on fastmcp-ip-reputation",
         rightPaneTabs: ["request"],
         sampleRequest: '{\n  "jsonrpc": "2.0",\n  "id": 2,\n  "method": "tools/call",\n  "params": {\n    "name": "lookup_ip",\n    "arguments": {"ip": "185.220.101.45"}\n  }\n}',
       },
     },
     {
-      id: "8", label: "Verdict", nodeId: "fastmcp", kind: "mcp_response",
+      id: "9", label: "Verdict", nodeId: "fastmcp", kind: "mcp_response",
       detail: {
-        title: "Step 8 — Federation returns verdict",
+        title: "Step 9 — Federation returns verdict from real lookup DB",
         rightPaneTabs: ["response"],
         sampleResponse: '{\n  "ip": "185.220.101.45",\n  "verdict": "malicious",\n  "confidence": 0.95,\n  "sources": ["tor-exit-list", "abuse.ch"],\n  "tags": ["tor"]\n}',
       },
     },
     {
-      id: "9", label: "Synthesis", nodeId: "strands", kind: "synthesis",
+      id: "10", label: "Synthesis + audit chain", nodeId: "agent", kind: "synthesis",
       detail: {
-        title: "Step 9 — Strands synthesizes answer + audit trail",
+        title: "Step 10 — Agent synthesizes answer with honest audit trail",
         rightPaneTabs: ["response"],
-        sampleResponse: 'agent> 185.220.101.45: MALICIOUS (confidence 0.95)\n        sources: tor-exit-list, abuse.ch\n        tags: tor\n\n        audit:\n          discovered via SVCB at _ip-reputation._mcp._agents.${SLUG}...\n          DNSSEC: AD flag verified\n          cap-doc: JWS signed by k-ops-team-2026\n          invoked via gw.${SLUG}.workshop.hvn.com\n          routed by agentgateway',
+        sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Sources:** tor-exit-list, abuse.ch\n       **Trust chain (audit):**\n       - SVCB record: _ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com\n       - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)\n       - JWS signature: not signed (cap doc unsigned)\n       - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/...v1.json (fetched, agent=ip-reputation, version=1.0.0)\n       - Policy: https://ietf-vienna-cap-docs.s3.amazonaws.com/...policy.json\n       - Invoked via: http://agentgateway:3000/ip-reputation/mcp',
       },
     },
   ],
@@ -154,41 +176,52 @@ export const IETF_FLOW: Flow = {
 
 // ──────────────────────────────────────────────────────────────────────
 // IETF2 flows: 4 challenges as separate sidebar entries
-// (Stubs for v1 — populated as the challenges are exercised.)
+// Placeholder content until IETF2 lab is built.
 // ──────────────────────────────────────────────────────────────────────
+
+const IETF2_PLACEHOLDER_STEPS: FlowStep[] = [
+  {
+    id: "1", label: "IETF2 not yet built", nodeId: "agent", kind: "tool_call",
+    detail: {
+      title: "IETF2 lab coming soon",
+      rightPaneTabs: ["request"],
+      sampleRequest: 'The IETF2 90-minute workshop (7 federation agents + rogue\nscenario + blast-radius cleanup) is under construction.\n\nIETF lab 1 is shipping-quality and demonstrates the full\ndiscovery → DNSSEC → cap-doc → xDS → invoke flow.',
+    },
+  },
+];
 
 export const IETF2_FLOWS: Flow[] = [
   {
     id: "ietf2-c1-spot-rogue",
-    title: "Challenge 1 — Spot the rogue",
+    title: "Challenge 1 — Spot the rogue (TBD)",
     category: "discovery",
     nodes: IETF_NODES,
     edges: IETF_EDGES,
-    steps: IETF_FLOW.steps,
+    steps: IETF2_PLACEHOLDER_STEPS,
   },
   {
     id: "ietf2-c2-contain",
-    title: "Challenge 2 — RPZ contain",
+    title: "Challenge 2 — RPZ contain (TBD)",
     category: "trust",
     nodes: IETF_NODES,
     edges: IETF_EDGES,
-    steps: IETF_FLOW.steps,
+    steps: IETF2_PLACEHOLDER_STEPS,
   },
   {
     id: "ietf2-c3-blast",
-    title: "Challenge 3 — Blast radius",
+    title: "Challenge 3 — Blast radius (TBD)",
     category: "governance",
     nodes: IETF_NODES,
     edges: IETF_EDGES,
-    steps: IETF_FLOW.steps,
+    steps: IETF2_PLACEHOLDER_STEPS,
   },
   {
     id: "ietf2-c4-harden",
-    title: "Challenge 4 — Harden",
+    title: "Challenge 4 — Harden (TBD)",
     category: "governance",
     nodes: IETF_NODES,
     edges: IETF_EDGES,
-    steps: IETF_FLOW.steps,
+    steps: IETF2_PLACEHOLDER_STEPS,
   },
 ];
 
