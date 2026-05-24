@@ -18,7 +18,7 @@ tabs:
   title: Terminal 1
   type: terminal
   hostname: host
-- id: c2term2x9k7y
+- id: ibaxreqghtpv
   title: Terminal 2
   type: terminal
   hostname: host
@@ -72,7 +72,7 @@ These live on S3 — the same docs every learner uses. The DNS-AID record
 you're about to publish will point at them. Read them first so you
 know what you're advertising:
 
-```bash
+```run
 source /opt/lab/lab.env
 
 # DNS-AID cap envelope (referenced by SVCB key65400 / TXT fallback)
@@ -96,7 +96,7 @@ publish in one and watch live updates in the other.
 
 In **Terminal 2** — watch the translator:
 
-```bash
+```run
 docker logs -f translator
 ```
 
@@ -104,7 +104,7 @@ Back in **Terminal 1** you'll run the publish next. (Optionally you
 can use a `watch` loop in Terminal 2 to see the gateway routes update
 in real time:)
 
-```bash
+```run
 watch -n 1 'curl -s http://localhost:15000/api/routes 2>/dev/null | jq "{routes: [.[].route_name]}" 2>/dev/null'
 ```
 
@@ -113,7 +113,7 @@ finds nothing, pushes empty snapshots.
 
 ## Publish — one DNS record, one route appears
 
-```bash
+```run
 dns-aid publish \
     --name ip-reputation \
     --domain "${SANDBOX_SLUG}.${ZONE}" \
@@ -161,7 +161,7 @@ discovery story.
 
 ### Check 1 — the SVCB itself is resolvable from a public resolver
 
-```bash
+```run
 dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
 ```
 
@@ -183,7 +183,7 @@ What each field means:
 
 ### Check 2 — DNSSEC chain validates from root
 
-```bash
+```run
 dig +dnssec SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1 +noall +comments | grep flags
 ```
 
@@ -205,7 +205,7 @@ Route 53 doesn't support custom SVCB SvcParams (key65400 / key65403), so
 dns-aid demotes those to TXT records. This is where the cap doc URL and
 policy URL live.
 
-```bash
+```run
 dig +short TXT _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
 ```
 
@@ -238,7 +238,7 @@ will fetch this from S3 as part of its trust check.
 
 Within 5 seconds of publishing, the gateway should have a route:
 
-```bash
+```run
 sleep 6
 curl -s http://localhost:15000/api/routes | jq .
 
@@ -257,7 +257,7 @@ human edited this config.** The DNS record + the translator did it.
 
 ## Inspect the discovery view
 
-```bash
+```run
 dns-aid discover "${SANDBOX_SLUG}.${ZONE}"
 ```
 
@@ -269,7 +269,7 @@ policy_uri. The agent in C3 will fetch these.
 > ⚠️ This deletes the record you just published. You'll need to
 > re-publish before moving to C3. Skip this if you want to keep moving.
 
-```bash
+```run
 # One-shot delete (pulled from the repo so terminal paste can't mangle
 # multi-line bash). Deletes the SVCB + TXT records for ip-reputation.
 curl -sSL https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/scripts/delete-ip-reputation-record.sh | bash

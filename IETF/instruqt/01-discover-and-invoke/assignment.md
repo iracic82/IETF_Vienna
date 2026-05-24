@@ -64,7 +64,7 @@ demos:
 
 Open **Terminal** and run:
 
-```bash
+```run
 docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
 ```
 
@@ -102,7 +102,7 @@ Two ways to confirm:
 
 **Way 2 — terminal.**
 
-```bash
+```run
 # Try to invoke ip-reputation directly — 404 because no route exists
 curl -sw '%{http_code}\n' -o /dev/null \
     -X POST http://localhost:3000/ip-reputation/mcp \
@@ -144,7 +144,7 @@ Also worth a look:
 
 ## Check public DNS state for your subdomain
 
-```bash
+```run
 source /opt/lab/lab.env
 echo "your subdomain = ${SANDBOX_SLUG}.${ZONE}"
 echo "DNSSEC chain   = root → .com → ccdesanity.com → ${ZONE} (validated)"
@@ -155,7 +155,7 @@ dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1
 
 ## Watch the translator
 
-```bash
+```run
 docker logs --tail 30 translator
 ```
 

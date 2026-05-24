@@ -45,7 +45,7 @@ enhanced_loading: null
 
 ## Start the agent
 
-```bash
+```run
 docker exec -it strands-agent python /app/agent.py
 ```
 
@@ -173,7 +173,7 @@ The route IS attached to a backend (the proxy works — you just saw it
 in C3 above), but the UI shows `Name: Unknown Backend` and `Type:
 Unknown` because of an upstream UI bug. To see the real data:
 
-```bash
+```run
 curl -s http://localhost:15000/config_dump | python3 -m json.tool
 ```
 
@@ -204,7 +204,7 @@ it only counts "non-inline" attached policies (a separate object type
 not used here). This is another agentgateway UI nuance, not a missing
 policy. Verify the CORS works:
 
-```bash
+```run
 curl -i -X OPTIONS http://localhost:3000/ip-reputation/mcp \
     -H "Origin: http://localhost:15000" \
     -H "Access-Control-Request-Method: POST" 2>&1 | head -12
@@ -222,7 +222,7 @@ the browser rejects `http://*:3000/...` as `Invalid name`. Skip it.
 
 Same round trip the AI agent uses, no broken UI:
 
-```bash
+```run
 # 1. MCP initialize — proves the route works end-to-end
 curl -sw '\nHTTP %{http_code}\n' \
     -X POST http://localhost:3000/ip-reputation/mcp \
@@ -258,7 +258,7 @@ For now it's empty; in the workshop you'll write some.
 
 This route exists because of a DNS record. Try the demo punchline:
 
-```bash
+```run
 # One-shot delete (pulled from the repo so terminal paste can't mangle
 # multi-line bash). Deletes the SVCB + TXT records for ip-reputation.
 curl -sSL https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/scripts/delete-ip-reputation-record.sh | bash
@@ -270,7 +270,7 @@ curl -sSL https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/scripts/de
 
 ## Bonus 1 — compare resolvers side by side
 
-```bash
+```run
 source /opt/lab/lab.env
 
 for r in 1.1.1.1 9.9.9.9 8.8.8.8; do
