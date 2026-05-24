@@ -200,29 +200,18 @@ def _sanitize_schema(schema: dict) -> dict:
 
 
 # ── Endpoint normalization ─────────────────────────────────────────────
-# In this lab agentgateway is on the docker network at agentgateway:3000
-# with PATH-based routing — each agent is reached at /<agent-name>/mcp.
-# When Gemini emits a mangled or wrong endpoint, rewrite it to the
-# canonical agent path so dns-aid's call_agent_tool hits a real route.
+# In this lab agentgateway is the SOLE valid invocation surface for any
+# discovered MCP agent. Gemini routinely hallucinates URLs (mcp.<slug>...,
+# gw.<slug>..., https://<slug>..., etc.) — we don't trust ANY URL the
+# model produces. The rewrite is unconditional: always snap to the
+# canonical agentgateway path-routed URL for the discovered agent.
 def _canonical_endpoint(raw: str | None, agent_name: str = "ip-reputation") -> str:
-    # Gateway uses PATH routing /<agent>/mcp — dns-aid passes endpoint
-    # verbatim, no /mcp suffix added, so we include the full path here.
+    # Gateway path-mode: POST /<agent>/mcp → fastmcp-<agent>:3000/mcp.
+    # dns-aid sends endpoint verbatim (no auto-append of /mcp), so we
+    # include the full path here.
     canonical = f"http://agentgateway:3000/{agent_name}/mcp"
-    if not raw:
-        return canonical
-    if raw == canonical:
-        return raw
-    # Strip duplicate schemes.
-    for prefix in ("httpshttps://", "https://https://", "http://http://"):
-        if raw.startswith(prefix):
-            raw = "http://" + raw[len(prefix):]
-            break
-    # If anything points at gw.<slug> or at agentgateway without the
-    # /<agent>/mcp suffix, snap to canonical.
-    if "gw." in raw and ".iracictechguru.com" in raw:
-        return canonical
-    if "agentgateway" in raw and not raw.endswith(f"/{agent_name}/mcp"):
-        return canonical
+    # Unconditional snap — never trust model-emitted hostnames.
+    return canonical
     if raw.startswith("https://"):
         raw = "http://" + raw[len("https://"):]
     return raw
