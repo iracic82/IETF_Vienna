@@ -55,8 +55,8 @@ knowledge of any IP — every fact must come from a tool call.
 
 ## Ask a real question
 
-```
-analyst> Is 185.220.101.45 malicious?
+```run
+Is 185.220.101.45 malicious?
 ```
 
 Watch the terminal as the agent works. You'll see exactly this sequence:
@@ -97,8 +97,8 @@ corresponds to a verifiable observation.
 
 ## Try a known-clean IP
 
-```
-analyst> What about 8.8.8.8?
+```run
+What about 8.8.8.8?
 ```
 
 Should return clean with confidence 0.99, source `google-public-dns`.
@@ -290,8 +290,8 @@ validated by three independent resolvers.
 
 ## Bonus 2 — what happens if you ask about a totally unknown IP
 
-```
-analyst> Is 203.0.113.99 malicious?
+```run
+Is 203.0.113.99 malicious?
 ```
 
 The lookup DB doesn't know about that IP. Watch the agent honestly
