@@ -276,6 +276,14 @@ if ! git clone --verbose --depth 1 "${LAB_REPO_URL}" "${LAB_DIR}" 2>&1; then
 fi
 echo "[setup] clone done — top-level: $(ls "${LAB_DIR}" | tr '\n' ' ')"
 
+# Hand the cloned repo to student so they can `git pull` updates
+# in-place without root privileges. Also add the safe.directory entry
+# so git's ownership protection doesn't trip when student runs git here.
+if id student >/dev/null 2>&1; then
+    chown -R student:student "${LAB_DIR}"
+    sudo -u student git config --global --add safe.directory "${LAB_DIR}" || true
+fi
+
 EXPECTED="${LAB_DIR}/IETF/sandbox/bootstrap.sh"
 if [ ! -f "${EXPECTED}" ]; then
     echo "[setup] ERROR: expected ${EXPECTED} but it's missing." >&2
