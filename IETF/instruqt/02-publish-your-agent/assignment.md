@@ -42,52 +42,83 @@ timelimit: 1800
 enhanced_loading: null
 ---
 
-# 2. Publish — DNS becomes a gateway route in 5 seconds
+# 2. Publish — DNS becomes a gateway route in seconds
+
+## What you'll do
+
+One `dns-aid publish` command writes a SVCB + a few TXT records to
+Route 53. Three things will happen as a consequence:
+
+1. **The capability becomes discoverable** by any agent who knows
+   the federation's naming convention (`_<name>._<proto>._agents.<zone>`).
+2. **The published cap_uri + policy_uri** point at the contract on S3.
+   In C3 the agent will fetch both: cap doc to know what tools are
+   available, policy doc for the SDK caller-side enforcement check.
+3. **The xDS translator** notices the new SVCB on its next poll and
+   pushes a `Route` + `Backend` to agentgateway via Envoy v3 ADS.
+   No human edits agentgateway's config. The route just appears.
 
 ## The architecture you're operating
 
 ```
-   dns-aid publish ip-reputation       ┌──────────────────────┐
-        │                       ┌─────►│ fastmcp-ip-reputation│
-        ▼                       │      └──────────────────────┘
-   ┌──────────┐ poll SVCB  ┌────┴────┐
-   │ Route 53 │ ─────────► │ translator │  Envoy v3 ADS gRPC
-   │  (lab.   │            │            │ ◄─── stream open continuously
-   │   ccdes  │            │ ADS :18000 │      no restart, no outage
-   │   anity) │            └─────┬──────┘
-   └──────────┘                  │ Delta push on every snapshot change
-                                 ▼
-                          ┌──────────────────┐
-                          │  agentgateway    │ ← starts with 0 routes
-                          │  xdsAddress: ↑   │   after publish: 1 route
-                          └────────┬─────────┘
-                                   │ POST /ip-reputation/mcp
-                                   ▼
-                           agent (or curl, or any MCP client)
+   dns-aid publish ip-reputation         ┌──────────────────────┐
+        │                       ┌──────► │ fastmcp-ip-reputation│
+        ▼                       │        └──────────────────────┘
+   ┌──────────┐  poll SVCB  ┌───┴─────┐
+   │ Route 53 │ ──────────► │translator│  Envoy v3 ADS (Delta gRPC)
+   │  lab.    │             │ ADS :18000 │ ◄── continuously open stream
+   │  ccdes-  │             │          │     no gateway restart needed
+   │  anity   │             └────┬─────┘
+   │  .com    │                  │  push: Bind / Listener / Route / Backend
+   └─┬────────┘                  ▼
+     │                     ┌──────────────┐
+     │  cap_uri + policy   │ agentgateway │ ← 0 routes at boot
+     │  references (TXT)   │ xdsAddress:↑ │   1 route after publish
+     │                     └──────┬───────┘
+     ▼                            │  POST /ip-reputation/mcp
+   ┌──────────────────────┐       ▼
+   │  S3 cap docs         │   ┌─────────┐
+   │  - v1.json (envelope)│   │ caller  │ (Strands/Gemini agent in C3,
+   │  - mcp-server-card   │   │  or any │  or curl, or any MCP client)
+   │  - policy.json       │   │  client │
+   └──────────────────────┘   └─────────┘
+       ▲     ▲
+       │     │  fetched by SDK caller-side
+       │     │  guard before invocation
+       │     │  (C3 audit trail shows it)
 ```
 
-## Inspect the published-contract documents
+## Read the contract first — three published documents
 
-These live on S3 — the same docs every learner uses. The DNS-AID record
-you're about to publish will point at them. Read them first so you
-know what you're advertising:
+These three JSONs are hosted on a public S3 bucket. The DNS record you
+publish will point at them via `--cap-uri` / `--policy-uri`. Read them
+before publishing so you know what you're advertising:
 
 ```run
 source /opt/lab/lab.env
 
-# DNS-AID cap envelope (referenced by SVCB key65400 / TXT fallback)
+# 1. DNS-AID cap envelope (the document SVCB's cap_uri points at)
 curl -s ${CAP_BASE_URL}/ip-reputation/v1.json | head -30
 
-# MCP Server Card per SEP-1649 (model's view of the server's tools)
+# 2. MCP Server Card per SEP-1649 (the tool catalogue the model uses)
 curl -s ${CAP_BASE_URL}/ip-reputation/mcp-server-card.json | head -30
 
-# Policy doc (rate limits, allowed methods, governance contacts)
+# 3. Policy doc (what the SDK caller-side guard evaluates pre-invocation)
 curl -s ${CAP_BASE_URL}/ip-reputation/policy.json | head -30
 ```
 
+What each document is for:
+
+| Document | Discovery role | Enforcement role |
+|---|---|---|
+| `v1.json` (cap envelope) | Tells the caller this is an MCP server, points at MCP card + policy | — |
+| `mcp-server-card.json` ([SEP-1649](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1649)) | Tool list, schemas, transport — what the model can call | — |
+| `policy.json` | — | **Read by the SDK caller-side guard** before invocation (allowed_methods, allowed_tools, rate_limits, telemetry contract) and by the **target-side ASGI middleware** on every incoming request |
+
 > **Why MCP card, not A2A agent card?** ip-reputation is an MCP server
-> exposing the `lookup_ip` tool over Streamable HTTP. A2A `agent-card.json`
-> is a different convention for peer-to-peer agents — not used here.
+> exposing the `lookup_ip` tool over Streamable HTTP. A2A's
+> `agent-card.json` is a different convention for peer-to-peer agents
+> — not applicable here.
 
 ## Watch the translator + the gateway live
 
@@ -129,26 +160,37 @@ dns-aid publish \
     --ttl 30
 ```
 
-> **Why `--ttl 30`:** when you delete this record later (C3 punchline),
-> downstream resolvers (1.1.1.1, 9.9.9.9, local CoreDNS) keep serving
-> the cached answer until the TTL expires. With the dns-aid default
-> TTL=3600, deletes would take an hour to propagate — invisible in a
-> demo. TTL=15 means caches refresh every ~15s and "delete → route
-> vanishes" lands within 30 seconds. Production federations use higher
-> TTLs (300–3600s) to reduce DNS load.
+> **Why `--ttl 30`:** when you delete this record later (the C3 demo
+> punchline), downstream resolvers (1.1.1.1, 9.9.9.9, local CoreDNS)
+> keep serving the cached answer until the TTL expires. With the
+> default TTL=3600, a delete would take an hour to propagate —
+> invisible in a demo. TTL=30 means caches refresh every ~30s and
+> "delete → route vanishes" lands within a minute. Production
+> federations typically use 300–3600s to reduce DNS load.
 
 What just happened, in order:
 
-1. **dns-aid signed your record locally** (well — it would have, if Route 53
-   supported chunked TXT > 255 chars; we publish unsigned for now and report
-   the gap honestly in C3's audit chain).
-2. **dns-aid called Route 53** via `route53:ChangeResourceRecordSets` API.
-3. **Route 53 propagated** to its 4 authoritative name servers in seconds.
-4. **The translator's next poll cycle** (≤5s) finds the SVCB record.
-5. **The translator encodes** a `Backend` + `Route` + `Listener` + `Bind`
-   into protobuf, opens a Delta xDS push to agentgateway.
-6. **The gateway materializes** the new route. Now `/ip-reputation/mcp`
-   resolves to `fastmcp-ip-reputation:3000` from any client.
+1. **dns-aid serialised the record** (SVCB with standard SvcParams +
+   custom dnsaid_key65400/65403 for cap_uri/policy_uri, demoted to
+   TXT because Route 53 doesn't support custom SVCB SvcParams yet).
+2. **dns-aid called Route 53** via `ChangeResourceRecordSets`.
+3. **Route 53 propagated** to its 4 authoritative name servers in
+   seconds.
+4. **The translator's next poll cycle** (≤5s) finds the new SVCB.
+5. **The translator encodes** a `Bind` + `Listener` + `Route` +
+   `Backend` as Envoy v3 ADS resources and pushes them to
+   agentgateway over the open Delta stream.
+6. **The gateway materialises** the new route. Now POST `/ip-reputation/mcp`
+   on port 3000 proxies to `fastmcp-ip-reputation:3000/mcp` for any
+   client — agent, curl, or browser.
+
+> **Why no `--sign` in this lab?** dns-aid supports JWS-signed
+> records (ECDSA P-256, signer kid in JWKS). On Route 53 the
+> signed token gets demoted to TXT, and the encoded JWS exceeds
+> Route 53's 255-char-per-string TXT limit. dns-aid v0.21 doesn't
+> yet auto-chunk long TXT values, so we publish unsigned. C3's
+> audit chain reports this honestly as "JWS signature: not signed
+> (cap doc unsigned)" — we don't pretend the trust gap isn't there.
 
 ## Verify the public DNS layer
 
@@ -167,18 +209,18 @@ dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1
 
 Expected output:
 ```
-_ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com. 3600 IN SVCB 1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000
+_ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com. 30 IN SVCB 1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000
 ```
 
 What each field means:
 
 | Field | Value | Means |
 |---|---|---|
-| `3600` | TTL | Cached for 1 hour at downstream resolvers |
-| `SVCB 1` | RR type + priority | Standard SVCB record, priority 1 |
-| `fastmcp-ip-reputation.` | target host | Where the actual MCP backend lives. The xDS translator uses THIS to wire the gateway's route. |
-| `mandatory=alpn,port` | required SvcParams | Clients MUST honour these |
-| `alpn="mcp"` | protocol | This endpoint speaks MCP (not h2, not http/1.1) |
+| `30` | TTL | Cached for 30s at downstream resolvers (set by `--ttl 30`) |
+| `SVCB 1` | RR type + priority | Standard [RFC 9460](https://datatracker.ietf.org/doc/rfc9460/) SVCB, priority 1 |
+| `fastmcp-ip-reputation.` | target host | Where the actual MCP backend lives. The xDS translator reads THIS to wire the gateway's `Backend` resource. |
+| `mandatory=alpn,port` | required SvcParams | Clients MUST honour these or treat the record as broken |
+| `alpn="mcp"` | application protocol | This endpoint speaks MCP (not h2, not http/1.1) |
 | `port=3000` | port | Backend listens on 3000 |
 
 ### Check 2 — DNSSEC chain validates from root
@@ -218,8 +260,10 @@ Expected output:
 "dnsaid_key65403=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json"
 ```
 
-The `dnsaid_key65400=...` line is your cap doc URL. The agent in C3
-will fetch this from S3 as part of its trust check.
+The `dnsaid_key65400=...` line is your cap doc URL — the agent in C3
+will fetch this from S3 as part of its trust check. The `dnsaid_key65403=...`
+line is the policy URL — what the **SDK caller-side guard** evaluates
+before letting the agent invoke `lookup_ip`.
 
 > **Real-world caveat on DNS caching:** if you ever notice the gateway
 > taking longer than 5s to pick up a newly published agent, you're
