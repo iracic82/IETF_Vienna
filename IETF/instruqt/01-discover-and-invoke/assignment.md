@@ -41,24 +41,73 @@ enhanced_loading: null
 
 # 1. Tour the lab — DNS as the control plane
 
-## The setup, in one paragraph
+## The setup
 
-You are a SOC analyst at a security org that's part of a federated
-threat-intel network. Other orgs publish capabilities into shared DNS
-zones; your AI assistant discovers them at runtime via DNS-AID
-([IETF I-D draft-mozleywilliams-dnsop-dnsaid](https://datatracker.ietf.org/doc/draft-mozleywilliams-dnsop-dnsaid/))
-and calls them through a runtime enforcement layer (agentgateway).
+You are a SOC analyst at a security org that participates in a
+federated threat-intelligence network. Other organisations publish
+capabilities (IP reputation, URL scanning, CVE lookup, passive DNS, …)
+into shared DNS zones. Your AI assistant has to **find** those
+capabilities, **trust** them, and **invoke** them — without anyone
+hand-coding endpoint URLs or shipping per-vendor SDKs.
 
-What makes this different from "AI agent calls another AI agent"
-demos:
+DNS-AID is the IETF draft that makes this possible:
 
-- **Discovery is via DNS.** No registry, no SDK, no hardcoded endpoint.
-  The agent only knows the naming convention `_<name>._<proto>._agents.<zone>`.
-- **Runtime enforcement is mandatory.** Every invocation goes through
-  agentgateway. Policy lives there, not in client code.
-- **The gateway's routes come from DNS, not from a config file.**
-  An xDS translator watches DNS and pushes routes into agentgateway in
-  real time. Publish a record → route appears. Delete it → route disappears.
+- Draft: [`draft-mozleywilliams-dnsop-dnsaid`](https://datatracker.ietf.org/doc/draft-mozleywilliams-dnsop-dnsaid/)
+- Project site: [dns-aid.org](https://dns-aid.org)
+- Reference implementation: [`dns-aid-core`](https://github.com/iracic82/dns-aid-core)
+  — Python library, CLI, MCP server, SDK with caller- and target-side
+  policy enforcement.
+
+## What's different about this lab vs. a typical "agent calls agent" demo
+
+| Conventional setup | DNS-AID federation (this lab) |
+|---|---|
+| Endpoints hard-coded in client config or registry | Endpoints **discovered at runtime via DNS** — SVCB record under `_<name>._<proto>._agents.<zone>` |
+| Trust = "we both have the same API key" | **Layered trust**: DNSSEC for record integrity → DANE/TLSA for cert binding → JWS signature on cap doc → JWKS for key publication |
+| Capability metadata in a vendor SDK | **Cap document** (JSON, published independently): tools, schemas, version, `policy_uri`, `cap_sha256` |
+| Policy decisions = "client behaves" | **Policy enforced at three independent layers** (see below) — even a misbehaving caller gets rejected at the next layer down |
+| Adding a new capability = ticket → CI → deploy | **Adding a capability is a DNS publish.** Removing = DNS delete. No code, no restart. |
+
+## DNS-AID has an SDK — and the SDK enforces policy at both ends
+
+The DNS-AID Python SDK ([source](https://github.com/iracic82/dns-aid-core/tree/main/src/dns_aid/sdk))
+is what the AI agent links against. Two enforcement points:
+
+1. **Caller-side guard** — before the agent invokes a discovered
+   capability, the SDK fetches the target's published `policy_uri`,
+   evaluates it (CEL expressions, allowed methods, rate limits,
+   geographic constraints), and **blocks the call** if it violates
+   the contract. Belt: caller refuses to make a bad call.
+
+2. **Target-side ASGI middleware** — the agent SERVER exposes its
+   capability through middleware that re-evaluates the same policy
+   on every incoming request and rejects anything non-compliant.
+   Braces: even if a caller skipped the guard (or lied about who
+   they are), the target rejects.
+
+3. **Optionally compiled to resolver-layer enforcement** — the SDK
+   can also compile a policy to BIND-AID / Response Policy Zone
+   (RPZ) directives, so the **DNS resolver itself** refuses to even
+   tell a non-permitted caller where the target lives. This is the
+   pattern IETF2 workshop exercises in the rogue scenario.
+
+This lab puts the **runtime gateway** (agentgateway) on top of those
+three SDK layers as a fourth enforcement point — a sidecar/proxy
+that observes and enforces independent of any SDK cooperation.
+
+## The xDS twist — gateway routes come from DNS, in real time
+
+The agentgateway in this lab has **zero static routes**. A separate
+container — the *xDS translator* — polls Route 53 every 5s. When a
+SVCB record appears under your sandbox subdomain, the translator
+encodes a `Bind` + `Listener` + `Route` + `Backend` as Envoy v3 ADS
+resources and pushes them to agentgateway over a continuously-open
+gRPC Delta stream. When the record disappears, the route disappears.
+
+So: **DNS is the runtime control plane** — for both discovery (agent
+side) and route materialisation (gateway side). The single mental
+model "publish to DNS → it exists; delete from DNS → it's gone"
+applies to both planes simultaneously.
 
 ## What's running
 
