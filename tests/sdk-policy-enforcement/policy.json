@@ -1,0 +1,21 @@
+{
+  "$schema": "https://dns-aid.org/schemas/policy/v1.json",
+  "version": "1.0",
+  "agent": "ip-reputation.test.lab.ccdesanity.com",
+  "rules": {
+    "allowed_methods": ["initialize", "tools/list", "tools/call"],
+    "rate_limits": {
+      "max_per_minute": 60,
+      "max_per_hour": 10000
+    },
+    "cel_rules": [
+      {
+        "id": "tool-whitelist",
+        "expression": "request.tool_name == null || request.tool_name == 'lookup_ip'",
+        "effect": "deny",
+        "message": "Only 'lookup_ip' is permitted by this policy",
+        "enforcement_layers": ["layer1", "layer2"]
+      }
+    ]
+  }
+}
