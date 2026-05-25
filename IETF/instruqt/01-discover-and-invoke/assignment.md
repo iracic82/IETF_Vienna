@@ -48,66 +48,70 @@ federated threat-intelligence network. Other organisations publish
 capabilities (IP reputation, URL scanning, CVE lookup, passive DNS, …)
 into shared DNS zones. Your AI assistant has to **find** those
 capabilities, **trust** them, and **invoke** them — without anyone
-hand-coding endpoint URLs or shipping per-vendor SDKs.
+hand-coding endpoint URLs.
 
-DNS-AID is the IETF draft that makes this possible:
+DNS-AID is the IETF draft + reference implementation that makes this work:
 
-- Draft: [`draft-mozleywilliams-dnsop-dnsaid`](https://datatracker.ietf.org/doc/draft-mozleywilliams-dnsop-dnsaid/)
+- IETF draft: [`draft-mozleywilliams-dnsop-dnsaid`](https://datatracker.ietf.org/doc/draft-mozleywilliams-dnsop-dnsaid/)
 - Project site: [dns-aid.org](https://dns-aid.org)
-- Reference implementation: [`dns-aid-core`](https://github.com/iracic82/dns-aid-core)
-  — Python library, CLI, MCP server, SDK with caller- and target-side
-  policy enforcement.
+- Reference implementation: [`infobloxopen/dns-aid-core`](https://github.com/infobloxopen/dns-aid-core)
+  — Python library, CLI, MCP server, and an SDK with **caller- and
+  target-side policy enforcement** (the part this lab exercises).
 
 ## What's different about this lab vs. a typical "agent calls agent" demo
 
 | Conventional setup | DNS-AID federation (this lab) |
 |---|---|
-| Endpoints hard-coded in client config or registry | Endpoints **discovered at runtime via DNS** — SVCB record under `_<name>._<proto>._agents.<zone>` |
-| Trust = "we both have the same API key" | **Layered trust**: DNSSEC for record integrity → DANE/TLSA for cert binding → JWS signature on cap doc → JWKS for key publication |
+| Endpoints hard-coded in client config or vendor registry | Endpoints **discovered at runtime via DNS** — SVCB record under `_<name>._<proto>._agents.<zone>` |
+| Trust = "we both have the same API key" | **Layered trust signals**: DNSSEC for record integrity → DANE/TLSA for cert binding → JWS signature on cap doc → JWKS for key publication |
 | Capability metadata in a vendor SDK | **Cap document** (JSON, published independently): tools, schemas, version, `policy_uri`, `cap_sha256` |
-| Policy decisions = "client behaves" | **Policy enforced at three independent layers** (see below) — even a misbehaving caller gets rejected at the next layer down |
-| Adding a new capability = ticket → CI → deploy | **Adding a capability is a DNS publish.** Removing = DNS delete. No code, no restart. |
+| Policy = "the client behaves" | **Policy enforced at multiple independent layers** (see below) |
+| Adding a new capability = ticket → CI → deploy | **Adding a capability is a DNS publish.** Removing = DNS delete. No code change, no gateway restart. |
 
-## DNS-AID has an SDK — and the SDK enforces policy at both ends
+## Where policy gets enforced
 
-The DNS-AID Python SDK ([source](https://github.com/iracic82/dns-aid-core/tree/main/src/dns_aid/sdk))
-is what the AI agent links against. Two enforcement points:
+DNS-AID's design is that the same `policy_uri` published in DNS is
+evaluated at multiple, independent points. This lab exercises the
+**two SDK enforcement points** in the [`dns_aid.sdk.policy`](https://github.com/infobloxopen/dns-aid-core/tree/main/src/dns_aid/sdk/policy)
+package:
 
 1. **Caller-side guard** — before the agent invokes a discovered
-   capability, the SDK fetches the target's published `policy_uri`,
-   evaluates it (CEL expressions, allowed methods, rate limits,
-   geographic constraints), and **blocks the call** if it violates
-   the contract. Belt: caller refuses to make a bad call.
-
+   capability, the SDK fetches the target's `policy_uri` from DNS,
+   evaluates it (allowed methods, rate limits, CEL expressions),
+   and **refuses to make the call** if it violates the contract.
 2. **Target-side ASGI middleware** — the agent SERVER exposes its
    capability through middleware that re-evaluates the same policy
-   on every incoming request and rejects anything non-compliant.
-   Braces: even if a caller skipped the guard (or lied about who
-   they are), the target rejects.
+   on every incoming request and **rejects** anything non-compliant.
+   This is the *mandatory* layer: regardless of whether the caller
+   SDK cooperated, the target re-checks and denies.
 
-3. **Optionally compiled to resolver-layer enforcement** — the SDK
-   can also compile a policy to BIND-AID / Response Policy Zone
-   (RPZ) directives, so the **DNS resolver itself** refuses to even
-   tell a non-permitted caller where the target lives. This is the
-   pattern IETF2 workshop exercises in the rogue scenario.
+On top of those two, this lab also runs a **runtime sidecar gateway**
+(agentgateway) in front of the target. It's an independent enforcement
+surface — request routing, CORS, future authn/authz, observability —
+that operates without trusting the caller's SDK behaviour.
 
-This lab puts the **runtime gateway** (agentgateway) on top of those
-three SDK layers as a fourth enforcement point — a sidecar/proxy
-that observes and enforces independent of any SDK cooperation.
+> **Out of scope for this lab — mentioned for context:**
+> DNS-AID also supports compiling a policy down to **Response Policy
+> Zone (RPZ)** directives that a DNSSEC-aware resolver (e.g. BIND with
+> [bind-aid](https://github.com/infobloxopen/dns-aid-core/tree/main/docs)
+> integration) can enforce — meaning the resolver itself refuses to
+> even tell a non-permitted caller where the target lives. We don't
+> demo the resolver layer here; that's the IETF2 workshop.
 
 ## The xDS twist — gateway routes come from DNS, in real time
 
-The agentgateway in this lab has **zero static routes**. A separate
-container — the *xDS translator* — polls Route 53 every 5s. When a
-SVCB record appears under your sandbox subdomain, the translator
-encodes a `Bind` + `Listener` + `Route` + `Backend` as Envoy v3 ADS
-resources and pushes them to agentgateway over a continuously-open
-gRPC Delta stream. When the record disappears, the route disappears.
+The agentgateway in this lab has **zero static routes** at boot.
+A separate container — the *xDS translator* — polls Route 53 every
+5 seconds. When a SVCB record appears under your sandbox subdomain,
+the translator encodes a `Bind` + `Listener` + `Route` + `Backend`
+as Envoy v3 ADS resources and pushes them to agentgateway over a
+continuously-open gRPC Delta stream. When the record disappears,
+the route disappears.
 
-So: **DNS is the runtime control plane** — for both discovery (agent
-side) and route materialisation (gateway side). The single mental
-model "publish to DNS → it exists; delete from DNS → it's gone"
-applies to both planes simultaneously.
+So: **DNS is the runtime control plane** — for both the agent's
+discovery and the gateway's route table. One mental model — "publish
+to DNS → it exists; delete from DNS → it's gone" — applies to both
+planes simultaneously.
 
 ## What's running
 
