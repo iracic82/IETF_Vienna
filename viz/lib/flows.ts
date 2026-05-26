@@ -64,6 +64,7 @@ const IETF_NODES: Node[] = [
   { id: "route53",    position: { x: 720, y:   0 }, data: { label: "Route 53\nlab.ccdesanity.com (DNSSEC)" }, type: "explorer" },
   { id: "cap-s3",     position: { x: 240, y: 160 }, data: { label: "S3 cap doc\nietf-vienna-cap-docs" }, type: "explorer" },
   { id: "translator", position: { x: 480, y: 160 }, data: { label: "xDS translator\npolls Route 53" }, type: "explorer" },
+  { id: "sdk-guard",  position: { x:   0, y: 160 }, data: { label: "dns-aid SDK guard\nLayer 1 (caller-side)" }, type: "explorer" },
   { id: "gateway",    position: { x: 240, y: 320 }, data: { label: "agentgateway\nxDS-driven, path-mode" }, type: "explorer" },
   { id: "fastmcp",    position: { x: 480, y: 320 }, data: { label: "FastMCP\nip-reputation" }, type: "explorer" },
 ];
@@ -75,6 +76,8 @@ const IETF_EDGES: Edge[] = [
   { id: "e4", source: "agent",      target: "cap-s3",     animated: true, label: "fetch v1.json" },
   { id: "e5", source: "route53",    target: "translator", animated: true, label: "polled" },
   { id: "e6", source: "translator", target: "gateway",    animated: true, label: "xDS push" },
+  { id: "e9", source: "agent",      target: "sdk-guard",  animated: true, label: "check policy" },
+  { id: "e10", source: "sdk-guard", target: "cap-s3",     animated: true, label: "fetch policy.json" },
   { id: "e7", source: "agent",      target: "gateway",    animated: true, label: "MCP call" },
   { id: "e8", source: "gateway",    target: "fastmcp",    animated: true, label: "proxy" },
 ];
@@ -148,6 +151,16 @@ export const IETF_FLOW: Flow = {
       },
     },
     {
+      id: "7b", label: "SDK guard check", nodeId: "sdk-guard", edgeFrom: "e9", kind: "jws_verify",
+      detail: {
+        title: "Step 7b — dns-aid SDK caller-side policy guard (Layer 1)",
+        rightPaneTabs: ["request", "response", "trust"],
+        sampleRequest: 'await check_target_policy(\n    policy_uri="https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json",\n    tool_name="lookup_ip",\n    method="tools/call",\n    caller_id="strands-agent-ietf-lab",\n)\n\nHelper: dns_aid.sdk.policy.guard.check_target_policy (dns-aid ≥0.21.3)\nWrapped in sdk_policy_check() — agent_vertex.py',
+        sampleResponse: 'PolicyResult(\n  allowed=True,\n  violations=[],\n  reason="allowed",\n)\n\n[sdk-guard] tool=\'lookup_ip\' → ALLOWED by SDK caller guard\n\n(With POLICY_OVERRIDE → policy-strict.json: allowed=False,\n  violations=[{rule:"cel:tool-deny-all",\n              detail:"STRICT policy: \'lookup_ip\' is BLOCKED"}])',
+        sampleTrust: 'Same PolicyEvaluator used by:\n  Layer 1 — caller SDK (this step)\n  Layer 2 — target ASGI middleware\n  Layer 3 — runtime gateway CEL\n  Layer 0 — bind-aid RPZ (IETF2)\n\nOne policy.json drives all four layers — published in DNS, evaluated\nwherever enforcement makes sense for the threat model.',
+      },
+    },
+    {
       id: "8", label: "tools/call lookup_ip", nodeId: "fastmcp", edgeFrom: "e8", kind: "mcp_call",
       detail: {
         title: "Step 8 — Invoke lookup_ip on fastmcp-ip-reputation",
@@ -174,55 +187,10 @@ export const IETF_FLOW: Flow = {
   ],
 };
 
-// ──────────────────────────────────────────────────────────────────────
-// IETF2 flows: 4 challenges as separate sidebar entries
-// Placeholder content until IETF2 lab is built.
-// ──────────────────────────────────────────────────────────────────────
+// IETF2 placeholder flows (Spot the rogue / RPZ / Blast radius / Harden)
+// removed — those belong to the future 90-min IETF2 workshop. For the
+// current IETF Vienna (IETF1) lab the Explorer surfaces just one flow:
+// the IP-reputation discover-and-invoke story that runs across the
+// three challenges. Add IETF2_FLOWS back here once that lab is built.
 
-const IETF2_PLACEHOLDER_STEPS: FlowStep[] = [
-  {
-    id: "1", label: "IETF2 not yet built", nodeId: "agent", kind: "tool_call",
-    detail: {
-      title: "IETF2 lab coming soon",
-      rightPaneTabs: ["request"],
-      sampleRequest: 'The IETF2 90-minute workshop (7 federation agents + rogue\nscenario + blast-radius cleanup) is under construction.\n\nIETF lab 1 is shipping-quality and demonstrates the full\ndiscovery → DNSSEC → cap-doc → xDS → invoke flow.',
-    },
-  },
-];
-
-export const IETF2_FLOWS: Flow[] = [
-  {
-    id: "ietf2-c1-spot-rogue",
-    title: "Challenge 1 — Spot the rogue (TBD)",
-    category: "discovery",
-    nodes: IETF_NODES,
-    edges: IETF_EDGES,
-    steps: IETF2_PLACEHOLDER_STEPS,
-  },
-  {
-    id: "ietf2-c2-contain",
-    title: "Challenge 2 — RPZ contain (TBD)",
-    category: "trust",
-    nodes: IETF_NODES,
-    edges: IETF_EDGES,
-    steps: IETF2_PLACEHOLDER_STEPS,
-  },
-  {
-    id: "ietf2-c3-blast",
-    title: "Challenge 3 — Blast radius (TBD)",
-    category: "governance",
-    nodes: IETF_NODES,
-    edges: IETF_EDGES,
-    steps: IETF2_PLACEHOLDER_STEPS,
-  },
-  {
-    id: "ietf2-c4-harden",
-    title: "Challenge 4 — Harden (TBD)",
-    category: "governance",
-    nodes: IETF_NODES,
-    edges: IETF_EDGES,
-    steps: IETF2_PLACEHOLDER_STEPS,
-  },
-];
-
-export const ALL_FLOWS: Flow[] = [IETF_FLOW, ...IETF2_FLOWS];
+export const ALL_FLOWS: Flow[] = [IETF_FLOW];
