@@ -8,6 +8,17 @@
      resources so the agentgateway UI labels them properly instead of
      showing "Unknown Backend" / "unnamed listener".
 
+  3. Add discovery STICKINESS — a single NXDOMAIN/NoAnswer from the
+     resolver no longer drops the agent. The translator's upstream
+     `discover_agents` returns an empty list on any DNS miss, which
+     makes the snapshot flip to "no agents" and the gateway tear down
+     the route. We remember the last good DiscoveredAgent per name
+     and serve it for up to N consecutive misses before declaring
+     it gone. Eliminates the 5-30s route-flap pattern we observed
+     during the lab. Trade-off: a real delete takes
+     `tolerance × interval` extra seconds to propagate (3 × 5 = 15s
+     by default), well within the C2 demo's "under a minute" promise.
+
 Newer translator versions ship these fields out of the box; the 0.3.0
 image we use as the base predates that change. Loaded at Python startup
 via a .pth file in site-packages (see Dockerfile).
@@ -76,8 +87,60 @@ def _install_patches() -> None:
 
     rb._listener = _listener_named
 
+    # ── Discovery stickiness (transient-failure tolerance) ─────────────
+    # discover_agents() in 0.3.0 skips any agent whose SVCB query
+    # raises NXDOMAIN/NoAnswer — a single empty answer (cache miss,
+    # upstream blip, prefetch lag) collapses the snapshot to empty and
+    # the gateway tears down routes. Wrap it so the previous-good
+    # DiscoveredAgent is reused for up to TOLERANCE consecutive
+    # missing-from-fresh-result polls per agent.
+    import os as _os
+
+    from translator import discovery as _disc
+
+    _TOLERANCE = int(_os.environ.get("TRANSLATOR_MISS_TOLERANCE", "3"))
+    _last_seen: dict[str, tuple[object, int]] = {}  # name -> (agent, misses)
+    _orig_discover_agents = _disc.discover_agents
+
+    def _discover_with_stickiness(
+        domain, protocol, agent_names, server, port, metrics=None
+    ):
+        fresh = _orig_discover_agents(
+            domain, protocol, agent_names, server, port, metrics=metrics
+        )
+        fresh_by_name = {a.name: a for a in fresh}
+        result = list(fresh)
+        for name in agent_names:
+            if name in fresh_by_name:
+                _last_seen[name] = (fresh_by_name[name], 0)
+                continue
+            cached = _last_seen.get(name)
+            if cached is None:
+                continue  # never seen — nothing to substitute
+            agent, misses = cached
+            if misses + 1 >= _TOLERANCE:
+                # exceeded tolerance — accept the miss as authoritative
+                _last_seen.pop(name, None)
+                print(
+                    f"[cors_patch] stickiness: '{name}' missed "
+                    f"{_TOLERANCE} polls — declaring gone",
+                    flush=True,
+                )
+                continue
+            _last_seen[name] = (agent, misses + 1)
+            result.append(agent)
+            print(
+                f"[cors_patch] stickiness: '{name}' miss "
+                f"{misses + 1}/{_TOLERANCE} — serving last-known-good",
+                flush=True,
+            )
+        return result
+
+    _disc.discover_agents = _discover_with_stickiness
+
     print(
-        "[cors_patch] installed: routes carry CORS; backends + listener carry names",
+        "[cors_patch] installed: routes carry CORS; backends + listener "
+        f"carry names; discovery stickiness tolerance={_TOLERANCE}",
         flush=True,
     )
 
