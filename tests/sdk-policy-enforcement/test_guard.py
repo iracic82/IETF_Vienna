@@ -12,11 +12,14 @@ We exercise THREE scenarios against the same policy.json:
   3. method='admin/shutdown' — should be DENIED
      (not in allowed_methods)
 
-We bypass the convenience wrapper `check_target_policy(...)` (which
-doesn't expose tool_name) and use PolicyEvaluator + PolicyContext
-directly so we can drive the tool-level CEL rule.
+We use ``PolicyEvaluator`` + ``PolicyContext`` directly (rather than
+the convenience helper ``dns_aid.sdk.policy.guard.check_target_policy``)
+because the helper's HTTPS-only ``evaluator.fetch`` would refuse a
+local file URL. The lab agent uses the helper against the real S3
+HTTPS policy URL — see ``IETF/sandbox/strands-agent/agent_vertex.py``.
 
-Run via run.sh — pip install + python.
+Run via run.sh — pip install + python. Requires dns-aid>=0.21.3 so
+``PolicyContext.tool_name`` is honoured by the CEL rules.
 """
 
 from __future__ import annotations

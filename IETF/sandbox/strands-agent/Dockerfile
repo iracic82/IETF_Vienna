@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir \
     "google-cloud-aiplatform>=1.38" \
     "vertexai>=1.43" \
     "mcp>=1.0" \
-    'dns-aid[mcp,cli,route53,cel]>=0.21.0' \
+    'dns-aid[mcp,cli,route53,cel]>=0.21.3' \
     "strands-agents[litellm]>=0.1.0" \
     "litellm[vertex]>=1.50.0"
 
@@ -23,6 +23,5 @@ ENV PYTHONUNBUFFERED=1
 
 COPY agent_vertex.py /app/agent_vertex.py
 COPY agent.py /app/agent.py
-COPY sdk_guard.py /app/sdk_guard.py
 
 CMD ["python", "-u", "agent.py"]

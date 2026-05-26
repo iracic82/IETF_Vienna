@@ -18,7 +18,7 @@ source "${VENV}/bin/activate"
 if ! python3 -c "import dns_aid.sdk.policy.evaluator" 2>/dev/null; then
     echo "[test] installing dns-aid + dependencies"
     pip install --quiet --upgrade pip
-    pip install --quiet "dns-aid[mcp,cel]>=0.21.0"
+    pip install --quiet "dns-aid[mcp,cel]>=0.21.3"
 fi
 
 echo "[test] dns-aid version:"

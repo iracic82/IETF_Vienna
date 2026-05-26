@@ -340,13 +340,14 @@ def _check_dnssec(fqdn: str, rtype: str = "SVCB") -> dict:
 
 
 # ── SDK caller-side policy guard ───────────────────────────────────────
-# Layer 1 of the DNS-AID three-layer enforcement model. The full guard
-# implementation is in sdk_guard.py — it's a stand-alone module that any
-# AI agent can copy/adapt to enforce a target's published policy_uri
-# before making an MCP invocation. See that file for the production-shape
-# example of dns-aid SDK usage.
+# Layer 1 of the DNS-AID three-layer enforcement model. We call the
+# official helper dns_aid.sdk.policy.guard.check_target_policy which
+# uses the same PolicyEvaluator that runs in the dns-aid MCP server and
+# the target-side ASGI middleware — one engine, three enforcement
+# points. The helper handles HTTPS-safe fetch, evaluator caching, and
+# the DNS_AID_POLICY_MODE env knob for us.
 
-from sdk_guard import evaluate_call as _sdk_evaluate_call  # noqa: E402
+from dns_aid.sdk.policy.guard import check_target_policy  # noqa: E402
 
 _LAST_POLICY_URI: str | None = None
 
@@ -493,25 +494,35 @@ async def main() -> None:
                         print(f"  [tool] {name}({args})")
 
                         # ── DNS-AID SDK caller-side policy guard ─────
-                        # Layer 1 enforcement. See sdk_guard.py for the
-                        # full re-usable implementation. Falls open on
-                        # missing SDK / policy / network errors.
+                        # Layer 1 enforcement via the official SDK
+                        # helper. Falls open on missing policy_uri /
+                        # network errors per dns-aid's own contract.
                         sdk_decision = None
+                        sdk_status = "n/a"
                         if name == "call_agent_tool":
                             target_tool = args.get("tool_name")
-                            sdk_decision = _sdk_evaluate_call(
+                            sdk_decision = await check_target_policy(
                                 _LAST_POLICY_URI,
                                 tool_name=target_tool,
                                 method="tools/call",
                                 caller_id="strands-agent-ietf-lab",
                             )
-                            print(f"  [sdk-guard] tool={target_tool!r} → {sdk_decision.reason}")
+                            sdk_status = (
+                                "ALLOWED by SDK caller guard"
+                                if sdk_decision.allowed
+                                else f"DENIED: {sdk_decision.reason}"
+                            )
+                            print(f"  [sdk-guard] tool={target_tool!r} → {sdk_status}")
                             if not sdk_decision.allowed:
                                 result_text = json.dumps({
                                     "success": False,
                                     "blocked_by": "dns-aid SDK caller-side guard (Layer 1)",
                                     "reason": sdk_decision.reason,
-                                    "policy_uri": sdk_decision.policy_uri,
+                                    "policy_uri": _LAST_POLICY_URI,
+                                    "violations": [
+                                        {"rule": v.rule, "detail": v.detail}
+                                        for v in sdk_decision.violations
+                                    ],
                                     "telemetry": {
                                         "latency_ms": 0,
                                         "status": "policy_denied",
@@ -580,7 +591,7 @@ async def main() -> None:
                                         "__jws_status": "not signed (cap doc unsigned)",
                                         "__signer_kid": None,
                                         "__invoked_via": f"http://agentgateway:3000/ip-reputation/mcp",
-                                        "__sdk_guard": (sdk_decision.reason if sdk_decision else "n/a"),
+                                        "__sdk_guard": sdk_status,
                                     }
                                     if isinstance(result_obj, dict):
                                         result_obj.update(audit)

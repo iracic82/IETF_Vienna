@@ -407,41 +407,50 @@ publisher, Layer 3 the platform team. **One document drives them all.**
 
 ### Read the SDK code that did the work
 
-The SDK guard is a single self-contained module —
-[`IETF/sandbox/strands-agent/sdk_guard.py`](https://github.com/iracic82/IETF_Vienna/blob/main/IETF/sandbox/strands-agent/sdk_guard.py)
-— that you can copy/adapt into your own AI agent. Key call:
+The agent calls the **official dns-aid SDK helper** — no custom
+wrapper. The helper lives at
+[`dns_aid.sdk.policy.guard.check_target_policy`](https://github.com/infobloxopen/dns-aid-core/blob/main/src/dns_aid/sdk/policy/guard.py)
+(shipped in `dns-aid>=0.21.3`) and is the same code path the
+dns-aid MCP server itself uses for caller-side enforcement. Key call:
 
 ```python
-from sdk_guard import evaluate_call
+from dns_aid.sdk.policy.guard import check_target_policy
 
-decision = evaluate_call(
+result = await check_target_policy(
     policy_uri,                 # from cap doc / SVCB key65403
     tool_name=requested_tool,   # what your agent wants to call
     method="tools/call",
     caller_id="my-agent",
 )
-if not decision.allowed:
-    # Don't make the call. Surface decision.reason to your audit log.
-    return refuse(decision.reason)
+if result.denied:
+    # Don't make the call. Surface result.reason / result.violations to your audit log.
+    return refuse(result.reason)
 ```
 
-In this lab the wrapper is invoked from
+In this lab the helper is invoked from
 [`agent_vertex.py`](https://github.com/iracic82/IETF_Vienna/blob/main/IETF/sandbox/strands-agent/agent_vertex.py)
 just before every `call_agent_tool` MCP invocation — search for
-`_sdk_evaluate_call` to see the integration point.
+`check_target_policy` to see the integration point.
 
-Behind the scenes `sdk_guard.evaluate_call` does:
+Behind the scenes the helper:
 
-1. Fetch the target's `policy_uri` (HTTPS).
-2. Parse it through `dns_aid.sdk.policy.schema.PolicyDocument`.
-3. Build a `PolicyContext` from your request (method, tool, etc.).
-4. Run `PolicyEvaluator().evaluate(...)` at
-   `PolicyEnforcementLayer.CALLER`.
-5. Return a `PolicyDecision` you can act on.
+1. Fetches the target's `policy_uri` over HTTPS (URL-safety checks built-in).
+2. Caches the parsed `PolicyDocument` (TTL via `DNS_AID_POLICY_CACHE_TTL`, default 300s).
+3. Builds a `PolicyContext` from your request (method, tool_name, protocol, caller_id, …).
+4. Runs `PolicyEvaluator().evaluate(...)` at `PolicyEnforcementLayer.CALLER`.
+5. Returns a `PolicyResult` with `.allowed`, `.denied`, `.reason`, `.violations`.
 
-Fail-open semantics (missing SDK / unreachable policy → ALLOWED with a
-clear reason) — sensible defaults for production. Pass `strict=True`
-to raise `SDKUnavailable` instead, if you want hard-failure behaviour.
+Operational knobs:
+
+| Env var | Effect |
+|---|---|
+| `DNS_AID_POLICY_MODE=disabled` | Helper short-circuits to `allowed=True` (kill-switch for incidents) |
+| `DNS_AID_POLICY_CACHE_TTL=N` | Cache parsed policy docs for N seconds (default 300) |
+| `DNS_AID_CALLER_DOMAIN=...` | Adds the caller's domain to `PolicyContext.caller_domain` for domain-scoped rules |
+
+Fail-open semantics on network/parse errors — sensible default for
+production. Override by wrapping the call yourself if you want
+hard-failure behaviour.
 
 ### Restore the default
 
