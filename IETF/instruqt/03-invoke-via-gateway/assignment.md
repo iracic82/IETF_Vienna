@@ -346,19 +346,60 @@ agent> I was unable to make the lookup. The dns-aid SDK caller-side guard
        (CEL rule 'tool-deny-all'). No network call was made.
 ```
 
-### Why this matters
+### Why this matters — four independent enforcement layers, one policy
 
-Three independent enforcement layers were exercised in this lab:
+DNS-AID's design is that the same `policy_uri` published in DNS is
+evaluated at multiple, independent points. All four read the **same
+policy document**; a deny at any layer blocks the request.
 
-| Layer | Where | What it caught |
-|---|---|---|
-| **Layer 1 — caller SDK** (this bonus) | inside the agent process | Refused to call a tool the published policy denies — *before* any network packet leaves |
-| **Layer 2 — target SDK** (not exercised in this lab; same evaluator runs as ASGI middleware) | inside the agent SERVER | Would also reject if the caller skipped the guard |
-| **Layer 3 — runtime sidecar (agentgateway)** | independent proxy in front of the target | Would enforce policy regardless of SDK cooperation (we use it here for routing, not policy yet — IETF2 workshop adds CEL policies on the gateway) |
+| Layer | Where | What it does | Exercised in this lab? |
+|---|---|---|---|
+| **Layer 0 — DNS resolver (bind-aid)** | resolver itself, via RPZ rules compiled from the policy | Resolver refuses to even tell a non-permitted caller where the target lives. Uses primitives our policy compiler emits to BIND-AID zone files. | ❌ — IETF2 workshop demos this with a bind9 + bind-aid integration |
+| **Layer 1 — caller SDK** | inside the agent process | Refused to call a tool the published policy denies — *before* any network packet leaves. | ✅ — you just saw it |
+| **Layer 2 — target SDK** | inside the agent SERVER (ASGI middleware) | Mandatory layer: even if a caller skipped the guard or lied about identity, the target re-checks and denies. | ❌ — same `PolicyEvaluator` runs as ASGI middleware; not wired here to keep the lab focused on caller-side |
+| **Layer 3 — runtime sidecar (agentgateway)** | independent proxy in front of the target | Operates without trusting the caller's SDK. We use it here for routing/CORS; policy CEL on the gateway is an IETF2 add. | ☑ Partial — gateway runs but doesn't enforce policy yet |
 
-All three read the **same policy document** via the same evaluator.
-Single source of truth. Multiple independent enforcement points.
-That's the "defence in depth" the DNS-AID protocol architects for.
+Each layer is independently developed and operated. Layer 0 is the
+resolver team, Layer 1 the AI-agent developer, Layer 2 the agent
+publisher, Layer 3 the platform team. **One document drives them all.**
+
+### Read the SDK code that did the work
+
+The SDK guard is a single self-contained module —
+[`IETF/sandbox/strands-agent/sdk_guard.py`](https://github.com/iracic82/IETF_Vienna/blob/main/IETF/sandbox/strands-agent/sdk_guard.py)
+— that you can copy/adapt into your own AI agent. Key call:
+
+```python
+from sdk_guard import evaluate_call
+
+decision = evaluate_call(
+    policy_uri,                 # from cap doc / SVCB key65403
+    tool_name=requested_tool,   # what your agent wants to call
+    method="tools/call",
+    caller_id="my-agent",
+)
+if not decision.allowed:
+    # Don't make the call. Surface decision.reason to your audit log.
+    return refuse(decision.reason)
+```
+
+In this lab the wrapper is invoked from
+[`agent_vertex.py`](https://github.com/iracic82/IETF_Vienna/blob/main/IETF/sandbox/strands-agent/agent_vertex.py)
+just before every `call_agent_tool` MCP invocation — search for
+`_sdk_evaluate_call` to see the integration point.
+
+Behind the scenes `sdk_guard.evaluate_call` does:
+
+1. Fetch the target's `policy_uri` (HTTPS).
+2. Parse it through `dns_aid.sdk.policy.schema.PolicyDocument`.
+3. Build a `PolicyContext` from your request (method, tool, etc.).
+4. Run `PolicyEvaluator().evaluate(...)` at
+   `PolicyEnforcementLayer.CALLER`.
+5. Return a `PolicyDecision` you can act on.
+
+Fail-open semantics (missing SDK / unreachable policy → ALLOWED with a
+clear reason) — sensible defaults for production. Pass `strict=True`
+to raise `SDKUnavailable` instead, if you want hard-failure behaviour.
 
 ### Restore the default
 

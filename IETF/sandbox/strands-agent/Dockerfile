@@ -23,5 +23,6 @@ ENV PYTHONUNBUFFERED=1
 
 COPY agent_vertex.py /app/agent_vertex.py
 COPY agent.py /app/agent.py
+COPY sdk_guard.py /app/sdk_guard.py
 
 CMD ["python", "-u", "agent.py"]

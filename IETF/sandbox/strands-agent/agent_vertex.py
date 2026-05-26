@@ -318,49 +318,20 @@ def _check_dnssec(fqdn: str, rtype: str = "SVCB") -> dict:
 
 
 # ── SDK caller-side policy guard ───────────────────────────────────────
-# Set by _enrich_with_cap_doc, consumed by _check_sdk_policy before
-# each call_agent_tool. POLICY_OVERRIDE env wins (used by C3 bonus to
-# point at a strict variant of the policy).
+# Layer 1 of the DNS-AID three-layer enforcement model. The full guard
+# implementation is in sdk_guard.py — it's a stand-alone module that any
+# AI agent can copy/adapt to enforce a target's published policy_uri
+# before making an MCP invocation. See that file for the production-shape
+# example of dns-aid SDK usage.
+
+from sdk_guard import evaluate_call as _sdk_evaluate_call  # noqa: E402
 
 _LAST_POLICY_URI: str | None = None
 
 
 def _resolve_policy_uri(discovered_uri: str | None) -> str | None:
-    override = os.environ.get("POLICY_OVERRIDE")
-    return override or discovered_uri
-
-
-def _check_sdk_policy(tool_name: str | None) -> tuple[bool, str]:
-    """Return (allowed, message). Falls open if SDK unavailable or no policy."""
-    policy_uri = _LAST_POLICY_URI
-    if not policy_uri:
-        return True, "no policy_uri discovered (fail-open)"
-    try:
-        from dns_aid.sdk.policy.evaluator import PolicyEvaluator
-        from dns_aid.sdk.policy.models import PolicyContext
-        from dns_aid.sdk.policy.schema import PolicyDocument, PolicyEnforcementLayer
-    except ImportError:
-        return True, "dns-aid SDK not installed (fail-open)"
-
-    try:
-        with urllib.request.urlopen(policy_uri, timeout=5) as resp:
-            doc = PolicyDocument.model_validate_json(resp.read())
-    except Exception as exc:  # noqa: BLE001
-        return True, f"policy fetch failed ({type(exc).__name__}) — fail-open"
-
-    evaluator = PolicyEvaluator()
-    ctx = PolicyContext(
-        caller_id="strands-agent-ietf-lab",
-        protocol="mcp",
-        method="tools/call",
-        tool_name=tool_name,
-    )
-    import asyncio as _aio
-    # evaluator.evaluate is sync; no await needed
-    result = evaluator.evaluate(doc, ctx, layer=PolicyEnforcementLayer.CALLER)
-    if result.allowed:
-        return True, "ALLOWED by SDK caller guard"
-    return False, f"DENIED: {result.reason}"
+    """POLICY_OVERRIDE env (used by the C3 bonus) takes precedence."""
+    return os.environ.get("POLICY_OVERRIDE") or discovered_uri
 
 
 def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: str) -> str:
@@ -485,21 +456,25 @@ async def main() -> None:
                             args["endpoint"] = _canonical_endpoint(args["endpoint"], agent_name=agent_name)
                         print(f"  [tool] {name}({args})")
 
-                        # ── SDK caller-side policy guard ─────────────
-                        # Before invoking a discovered agent, evaluate
-                        # the target's published policy locally. Refuses
-                        # the call (without ever leaving the agent
-                        # process) if policy denies.
+                        # ── DNS-AID SDK caller-side policy guard ─────
+                        # Layer 1 enforcement. See sdk_guard.py for the
+                        # full re-usable implementation. Falls open on
+                        # missing SDK / policy / network errors.
                         if name == "call_agent_tool":
                             target_tool = args.get("tool_name")
-                            allowed, msg = _check_sdk_policy(target_tool)
-                            print(f"  [sdk-guard] tool={target_tool!r} → {msg}")
-                            if not allowed:
+                            decision = _sdk_evaluate_call(
+                                _LAST_POLICY_URI,
+                                tool_name=target_tool,
+                                method="tools/call",
+                                caller_id="strands-agent-ietf-lab",
+                            )
+                            print(f"  [sdk-guard] tool={target_tool!r} → {decision.reason}")
+                            if not decision.allowed:
                                 result_text = json.dumps({
                                     "success": False,
                                     "blocked_by": "dns-aid SDK caller-side guard (Layer 1)",
-                                    "reason": msg,
-                                    "policy_uri": _LAST_POLICY_URI,
+                                    "reason": decision.reason,
+                                    "policy_uri": decision.policy_uri,
                                     "telemetry": {
                                         "latency_ms": 0,
                                         "status": "policy_denied",
