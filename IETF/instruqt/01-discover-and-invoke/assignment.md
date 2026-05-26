@@ -167,8 +167,12 @@ automatically.
 
 Open
 [`IETF/sandbox/strands-agent/agent_vertex.py`](https://github.com/iracic82/IETF_Vienna/blob/main/IETF/sandbox/strands-agent/agent_vertex.py)
-on GitHub, or in the **Terminal** tab run
-`less /opt/lab/IETF_Vienna/IETF/sandbox/strands-agent/agent_vertex.py`.
+on GitHub, or click ▶ below to read it in the terminal (press `q` to quit `less`):
+
+```run
+less /opt/lab/IETF_Vienna/IETF/sandbox/strands-agent/agent_vertex.py
+```
+
 Key bits:
 
 - **`SYSTEM_PROMPT`** (top of file) — tells the model "never answer from
