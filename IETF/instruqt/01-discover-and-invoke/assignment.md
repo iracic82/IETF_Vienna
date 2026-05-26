@@ -29,11 +29,6 @@ tabs:
   type: service
   hostname: host
   port: 15000
-- id: dkrksnqefjtn
-  title: Editor
-  type: code
-  hostname: host
-  path: /root
 difficulty: basic
 timelimit: 1800
 enhanced_loading: null
@@ -170,7 +165,10 @@ automatically.
 
 ## Read the agent code
 
-In the **Editor** tab, open `lab/IETF/sandbox/strands-agent/agent_vertex.py`.
+Open
+[`IETF/sandbox/strands-agent/agent_vertex.py`](https://github.com/iracic82/IETF_Vienna/blob/main/IETF/sandbox/strands-agent/agent_vertex.py)
+on GitHub, or in the **Terminal** tab run
+`less /opt/lab/IETF_Vienna/IETF/sandbox/strands-agent/agent_vertex.py`.
 Key bits:
 
 - **`SYSTEM_PROMPT`** (top of file) — tells the model "never answer from

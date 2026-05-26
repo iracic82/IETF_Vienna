@@ -31,11 +31,6 @@ tabs:
   type: service
   hostname: host
   port: 15000
-- id: yqjcx0qn49ao
-  title: Editor
-  type: code
-  hostname: host
-  path: /root
 difficulty: basic
 timelimit: 1800
 enhanced_loading: null
