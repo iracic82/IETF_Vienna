@@ -88,38 +88,38 @@ REQUIRED FLOW for IP queries:
             tool_name = "lookup_ip"
             endpoint  = "http://agentgateway:3000/ip-reputation/mcp"
             arguments = {{"ip": "<analyst's IP>"}}
-  Step 4. Return ONLY what the federation actually replied, in this format:
+  Step 4. Return EXACTLY this template — fill in the bracketed slots
+          from the listed fields. DO NOT paraphrase the trust-chain
+          lines; copy them verbatim from the structured fields.
 
-            **Verdict:** <verdict from tool>
-            **Confidence:** <confidence from tool>
-            **Sources:** <sources from tool>
+            **Verdict:** <verdict from tool result.verdict>
+            **Confidence:** <confidence from tool result.confidence>
+            **Sources:** <comma-joined tool result.sources>
             **Trust chain (audit):**
-            - SVCB record: _<name>._<proto>._agents.<domain>
-            - DNSSEC: <see HONEST REPORTING below>
-            - JWS signature: not signed (cap doc unsigned)
-            - SDK guard: <__sdk_guard or "n/a">
+            - SVCB record: _ip-reputation._mcp._agents.{SANDBOX_SLUG}.{ZONE}
+            - DNSSEC: <see DNSSEC MAPPING below>
+            - JWS signature: <__jws_status from tool result>
+            - SDK guard: <__sdk_guard from tool result>
             - Cap doc: <__cap_uri> (fetched, agent=<__cap_doc.agent>, version=<__cap_doc.version>)
-            - Policy: <__policy_uri or "none">
-            - Invoked via: http://agentgateway:3000/<agent-name>/mcp
+            - Policy: <__policy_uri>
+            - Invoked via: <__invoked_via from tool result>
 
-HONEST REPORTING — report ONLY what's in the enrichment fields:
-  - __dnssec_status=="ad"        → "DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)"
-  - __dnssec_status=="no-ad"     → "DNSSEC: zone responded but no AD flag (unsigned chain)"
-  - __dnssec_status=="servfail"  → "DNSSEC: SERVFAIL (broken chain)"
-  - __dnssec_status=="unknown"   → "DNSSEC: status unknown (dig unavailable)"
+DNSSEC MAPPING (from the discover_agents_via_dns result):
+  - __dnssec_status=="ad"        → "validated (AD flag set on SVCB query against 1.1.1.1)"
+  - __dnssec_status=="no-ad"     → "zone responded but no AD flag (unsigned chain)"
+  - __dnssec_status=="servfail"  → "SERVFAIL (broken chain)"
+  - __dnssec_status=="unknown"   → "status unknown (dig unavailable)"
 
-  JWS SIGNATURE IS ALWAYS "not signed (cap doc unsigned)" IN THIS LAB.
-  Route 53 cannot carry the JWS token (255-char TXT limit). NEVER claim
-  "verified" or invent a signer kid. If you're tempted, re-read this line.
-
-  Invoked via is ALWAYS "http://agentgateway:3000/<agent-name>/mcp" —
-  this is the canonical gateway path. Don't echo back whatever URL was
-  in the tool's call_agent_tool args; the wrapper rewrites them and the
-  actual transport always goes via agentgateway.
-
-  - __cap_doc not null           → "Cap doc: <__cap_uri> (fetched, agent=<__cap_doc.agent>, version=<__cap_doc.version>)"
-  - __cap_doc is null            → "Cap doc: <__cap_uri> (fetch failed)"
-  - __policy_uri present         → "Policy: <__policy_uri>"
+ABSOLUTE RULES — VIOLATING ANY OF THESE IS A BUG IN YOUR REPLY:
+  1. JWS signature value MUST be copied from __jws_status. NEVER invent
+     "verified" or a signer kid. The cap doc may contain a `signer_hint`
+     field — that is a HINT only, not proof of verification. Ignore it
+     for the audit chain.
+  2. Invoked via value MUST be copied from __invoked_via. The wrapper
+     sets this to the canonical gateway URL. Do NOT echo back the
+     endpoint arg you passed to call_agent_tool — that's untrusted.
+  3. SDK guard value MUST be copied from __sdk_guard. If absent, write "n/a".
+  4. If a field is missing or empty, write "missing" — do not fabricate.
 
 If the federation says "unknown", REPORT unknown. If a tool fails, REPORT
 the error verbatim.
@@ -496,21 +496,22 @@ async def main() -> None:
                         # Layer 1 enforcement. See sdk_guard.py for the
                         # full re-usable implementation. Falls open on
                         # missing SDK / policy / network errors.
+                        sdk_decision = None
                         if name == "call_agent_tool":
                             target_tool = args.get("tool_name")
-                            decision = _sdk_evaluate_call(
+                            sdk_decision = _sdk_evaluate_call(
                                 _LAST_POLICY_URI,
                                 tool_name=target_tool,
                                 method="tools/call",
                                 caller_id="strands-agent-ietf-lab",
                             )
-                            print(f"  [sdk-guard] tool={target_tool!r} → {decision.reason}")
-                            if not decision.allowed:
+                            print(f"  [sdk-guard] tool={target_tool!r} → {sdk_decision.reason}")
+                            if not sdk_decision.allowed:
                                 result_text = json.dumps({
                                     "success": False,
                                     "blocked_by": "dns-aid SDK caller-side guard (Layer 1)",
-                                    "reason": decision.reason,
-                                    "policy_uri": decision.policy_uri,
+                                    "reason": sdk_decision.reason,
+                                    "policy_uri": sdk_decision.policy_uri,
                                     "telemetry": {
                                         "latency_ms": 0,
                                         "status": "policy_denied",
@@ -546,6 +547,27 @@ async def main() -> None:
                                 result_text = _enrich_with_cap_doc(
                                     name, result_text, SANDBOX_SLUG, ZONE,
                                 )
+                                # For call_agent_tool, inject structured
+                                # audit fields the model MUST echo verbatim
+                                # in its trust-chain reply. This eliminates
+                                # the hallucination class where Gemini
+                                # invents 'verified — signer xxx' from
+                                # plausible-looking words in the cap doc.
+                                if name == "call_agent_tool":
+                                    try:
+                                        result_obj = json.loads(result_text)
+                                    except json.JSONDecodeError:
+                                        result_obj = {"raw": result_text}
+                                    target_tool = args.get("tool_name", "lookup_ip")
+                                    audit = {
+                                        "__jws_status": "not signed (cap doc unsigned)",
+                                        "__signer_kid": None,
+                                        "__invoked_via": f"http://agentgateway:3000/ip-reputation/mcp",
+                                        "__sdk_guard": (sdk_decision.reason if sdk_decision else "n/a"),
+                                    }
+                                    if isinstance(result_obj, dict):
+                                        result_obj.update(audit)
+                                        result_text = json.dumps(result_obj, indent=2)
                             except Exception as exc:
                                 result_text = json.dumps({"error": str(exc)})
                         # Print result so we see exactly what the model receives.
