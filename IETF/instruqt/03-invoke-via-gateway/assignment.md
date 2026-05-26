@@ -43,24 +43,23 @@ enhanced_loading: null
 
 # 3. Invoke — agent discovers, verifies, calls
 
-## Start the agent
-
-```run
-docker exec -it strands-agent python /app/agent.py
-```
-
-You'll see a banner and the `analyst>` prompt. The agent is a Vertex
-Gemini model with 20 dns-aid MCP tools loaded. It has no built-in
-knowledge of any IP — every fact must come from a tool call.
-
 ## Ask a real question
 
-Click ▶ to send the question to the running agent — the command pipes
-the prompt into the strands-agent REPL and prints the full reply.
+The agent is a Vertex Gemini model with 20 dns-aid MCP tools loaded.
+It has no built-in knowledge of any IP — every fact must come from a
+tool call. The command below starts the agent, pipes a single question
+in, and prints the full reply — one-shot, so the terminal returns to
+you when the answer arrives.
 
 ```run
 docker exec -i strands-agent python /app/agent.py <<< "Is 185.220.101.45 malicious?"
 ```
+
+> **Want the interactive REPL instead?** Open a second terminal tab
+> (top of the screen) and run `docker exec -it strands-agent python
+> /app/agent.py` there — you'll get the `analyst>` prompt and can ask
+> multiple questions in a session. Keep this tab free for the lab's
+> `run` blocks.
 
 Watch the terminal as the agent works. You'll see exactly this sequence:
 
