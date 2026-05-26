@@ -348,6 +348,7 @@ def _check_dnssec(fqdn: str, rtype: str = "SVCB") -> dict:
 # the DNS_AID_POLICY_MODE env knob for us.
 
 from dns_aid.sdk.policy.guard import check_target_policy  # noqa: E402
+from dns_aid.sdk.policy.models import PolicyResult  # noqa: E402
 
 _LAST_POLICY_URI: str | None = None
 
@@ -355,6 +356,31 @@ _LAST_POLICY_URI: str | None = None
 def _resolve_policy_uri(discovered_uri: str | None) -> str | None:
     """POLICY_OVERRIDE env (used by the C3 bonus) takes precedence."""
     return os.environ.get("POLICY_OVERRIDE") or discovered_uri
+
+
+# ─── THE SDK CALL-SITE C3 POINTS AT ───────────────────────────────────
+# Workshop: this is the *only* function in the lab that talks to the
+# dns-aid SDK for policy enforcement. Grep `sdk_policy_check` to find
+# the call below, and study this function to see exactly how an AI
+# agent integrates DNS-AID Layer 1 enforcement.
+async def sdk_policy_check(tool_name: str | None) -> PolicyResult:
+    """Caller-side Layer 1 policy check via the official dns-aid SDK helper.
+
+    Asks the target's published `policy_uri` (cached by the SDK) whether
+    `tool_name` is permitted under method='tools/call'. Returns a
+    `PolicyResult` whose `.allowed` / `.denied` / `.reason` /
+    `.violations` the caller can act on.
+
+    Fail-open by SDK contract: missing policy_uri or network/parse
+    errors → allowed=True. To hard-disable enforcement (e.g. during an
+    incident), set DNS_AID_POLICY_MODE=disabled.
+    """
+    return await check_target_policy(
+        policy_uri=_LAST_POLICY_URI,
+        tool_name=tool_name,
+        method="tools/call",
+        caller_id="strands-agent-ietf-lab",
+    )
 
 
 def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: str) -> str:
@@ -494,19 +520,13 @@ async def main() -> None:
                         print(f"  [tool] {name}({args})")
 
                         # ── DNS-AID SDK caller-side policy guard ─────
-                        # Layer 1 enforcement via the official SDK
-                        # helper. Falls open on missing policy_uri /
-                        # network errors per dns-aid's own contract.
+                        # Layer 1 enforcement. See sdk_policy_check()
+                        # above — the one and only SDK call site.
                         sdk_decision = None
                         sdk_status = "n/a"
                         if name == "call_agent_tool":
                             target_tool = args.get("tool_name")
-                            sdk_decision = await check_target_policy(
-                                _LAST_POLICY_URI,
-                                tool_name=target_tool,
-                                method="tools/call",
-                                caller_id="strands-agent-ietf-lab",
-                            )
+                            sdk_decision = await sdk_policy_check(target_tool)
                             sdk_status = (
                                 "ALLOWED by SDK caller guard"
                                 if sdk_decision.allowed

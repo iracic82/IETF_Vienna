@@ -446,10 +446,35 @@ if result.denied:
     return refuse(result.reason)
 ```
 
-In this lab the helper is invoked from
+In this lab the helper is wrapped in a single named function
+**`sdk_policy_check()`** inside
 [`agent_vertex.py`](https://github.com/iracic82/IETF_Vienna/blob/main/IETF/sandbox/strands-agent/agent_vertex.py)
-just before every `call_agent_tool` MCP invocation — search for
-`check_target_policy` to see the integration point.
+— grep for it (`grep -n sdk_policy_check agent_vertex.py`) and you'll
+see the entire integration in ~10 lines:
+
+```python
+async def sdk_policy_check(tool_name: str | None) -> PolicyResult:
+    """Caller-side Layer 1 policy check via the official dns-aid SDK helper."""
+    return await check_target_policy(
+        policy_uri=_LAST_POLICY_URI,         # populated by DNS discovery
+        tool_name=tool_name,                 # what Gemini wants to call
+        method="tools/call",
+        caller_id="strands-agent-ietf-lab",
+    )
+```
+
+Called from the tool-dispatch loop right before each `call_agent_tool`:
+
+```python
+if name == "call_agent_tool":
+    sdk_decision = await sdk_policy_check(args.get("tool_name"))
+    if sdk_decision.denied:
+        # synthesise denial JSON, skip the network call
+        return _make_denial_response(sdk_decision)
+```
+
+That's it. No custom wrapper, no policy parsing in agent code —
+everything else is the SDK's job.
 
 Behind the scenes the helper:
 
