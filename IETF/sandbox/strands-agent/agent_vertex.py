@@ -317,8 +317,56 @@ def _check_dnssec(fqdn: str, rtype: str = "SVCB") -> dict:
         return {"status": "unknown", "error": str(exc)}
 
 
+# ── SDK caller-side policy guard ───────────────────────────────────────
+# Set by _enrich_with_cap_doc, consumed by _check_sdk_policy before
+# each call_agent_tool. POLICY_OVERRIDE env wins (used by C3 bonus to
+# point at a strict variant of the policy).
+
+_LAST_POLICY_URI: str | None = None
+
+
+def _resolve_policy_uri(discovered_uri: str | None) -> str | None:
+    override = os.environ.get("POLICY_OVERRIDE")
+    return override or discovered_uri
+
+
+def _check_sdk_policy(tool_name: str | None) -> tuple[bool, str]:
+    """Return (allowed, message). Falls open if SDK unavailable or no policy."""
+    policy_uri = _LAST_POLICY_URI
+    if not policy_uri:
+        return True, "no policy_uri discovered (fail-open)"
+    try:
+        from dns_aid.sdk.policy.evaluator import PolicyEvaluator
+        from dns_aid.sdk.policy.models import PolicyContext
+        from dns_aid.sdk.policy.schema import PolicyDocument, PolicyEnforcementLayer
+    except ImportError:
+        return True, "dns-aid SDK not installed (fail-open)"
+
+    try:
+        with urllib.request.urlopen(policy_uri, timeout=5) as resp:
+            doc = PolicyDocument.model_validate_json(resp.read())
+    except Exception as exc:  # noqa: BLE001
+        return True, f"policy fetch failed ({type(exc).__name__}) — fail-open"
+
+    evaluator = PolicyEvaluator()
+    ctx = PolicyContext(
+        caller_id="strands-agent-ietf-lab",
+        protocol="mcp",
+        method="tools/call",
+        tool_name=tool_name,
+    )
+    import asyncio as _aio
+    # evaluator.evaluate is sync; no await needed
+    result = evaluator.evaluate(doc, ctx, layer=PolicyEnforcementLayer.CALLER)
+    if result.allowed:
+        return True, "ALLOWED by SDK caller guard"
+    return False, f"DENIED: {result.reason}"
+
+
 def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: str) -> str:
     """Post-discover enrichment: fetch S3 cap doc + check DNSSEC."""
+    global _LAST_POLICY_URI
+
     if name != "discover_agents_via_dns":
         return result_text
 
@@ -341,6 +389,11 @@ def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: s
         cap_doc = _fetch_cap_doc(derived)
     if not policy_uri and cap_doc and isinstance(cap_doc, dict):
         policy_uri = cap_doc.get("policy_uri") or cap_doc.get("policy")
+
+    # Allow C3 bonus to override the discovered policy (e.g. point at
+    # policy-strict.json to demonstrate the SDK guard denying a call).
+    policy_uri = _resolve_policy_uri(policy_uri)
+    _LAST_POLICY_URI = policy_uri
 
     fqdn = f"_ip-reputation._mcp._agents.{sandbox_slug}.{zone}"
     dnssec = _check_dnssec(fqdn, "SVCB")
@@ -431,6 +484,38 @@ async def main() -> None:
                                 agent_name = "ip-reputation"
                             args["endpoint"] = _canonical_endpoint(args["endpoint"], agent_name=agent_name)
                         print(f"  [tool] {name}({args})")
+
+                        # ── SDK caller-side policy guard ─────────────
+                        # Before invoking a discovered agent, evaluate
+                        # the target's published policy locally. Refuses
+                        # the call (without ever leaving the agent
+                        # process) if policy denies.
+                        if name == "call_agent_tool":
+                            target_tool = args.get("tool_name")
+                            allowed, msg = _check_sdk_policy(target_tool)
+                            print(f"  [sdk-guard] tool={target_tool!r} → {msg}")
+                            if not allowed:
+                                result_text = json.dumps({
+                                    "success": False,
+                                    "blocked_by": "dns-aid SDK caller-side guard (Layer 1)",
+                                    "reason": msg,
+                                    "policy_uri": _LAST_POLICY_URI,
+                                    "telemetry": {
+                                        "latency_ms": 0,
+                                        "status": "policy_denied",
+                                    },
+                                })
+                                fn_response_parts.append(
+                                    Part.from_function_response(
+                                        name=name,
+                                        response={"content": result_text},
+                                    )
+                                )
+                                # Print + skip the actual MCP call.
+                                preview = result_text if len(result_text) < 400 else result_text[:400] + "..."
+                                print(f"  [result] {preview}")
+                                continue
+
                         if name not in mcp_tool_lookup:
                             result_text = json.dumps({"error": f"unknown tool: {name}"})
                         else:

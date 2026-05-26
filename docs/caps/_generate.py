@@ -153,24 +153,32 @@ def render_mcp_server_card(a: dict) -> dict:
 
 
 def render_policy(a: dict) -> dict:
+    """Default policy — SDK-compatible, allows the agent's primary tool."""
+    tool = a["tool"]["name"]
     return {
-        "policy_version": "1.0",
-        "agent": a["slug"],
-        "issued_at": "2026-05-23T00:00:00Z",
+        "version": "1.0",
+        "agent": f"{a['slug']}.lab.ccdesanity.com",
+        "issued_at": "2026-05-26T00:00:00Z",
         "issuer": {
             "organization": "IETF_Vienna Demo Federation",
             "kid": "k-ops-team-2026",
         },
         "data_classification": "public",
-        "allowed_methods": ["tools/list", "tools/call"],
-        "allowed_tools": [a["tool"]["name"]],
-        "rate_limits": {"requests_per_minute": 60, "requests_per_day": 10000},
-        "output_retention_days": 0,
-        "telemetry": {
-            "log_calls": True,
-            "log_results": False,
-            "report_to": "https://telemetry.workshop.highvelocitynetworking.com/v1/events",
+        # ── rules block: read by the dns-aid SDK (PolicyEvaluator) ────
+        "rules": {
+            "allowed_methods": ["initialize", "tools/list", "tools/call"],
+            "rate_limits": {"max_per_minute": 60, "max_per_hour": 10000},
+            "cel_rules": [
+                {
+                    "id": "tool-whitelist",
+                    "expression": f"request.tool_name == null || request.tool_name == '{tool}'",
+                    "effect": "deny",
+                    "message": f"Only '{tool}' is permitted by this policy",
+                    "enforcement_layers": ["layer1", "layer2"],
+                }
+            ],
         },
+        # ── lab metadata (ignored by SDK, useful for humans + audit) ──
         "auth": {
             "required": False,
             "schemes": [],
@@ -181,6 +189,24 @@ def render_policy(a: dict) -> dict:
             "incident_response_runbook": f"https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/{a['slug']}/INCIDENT-RUNBOOK.md",
         },
     }
+
+
+def render_policy_strict(a: dict) -> dict:
+    """STRICT policy — denies the agent's primary tool. Used by C3 bonus
+    section to demo the SDK caller-side guard refusing a call."""
+    tool = a["tool"]["name"]
+    p = render_policy(a)
+    p["rules"]["cel_rules"] = [
+        {
+            "id": "tool-deny-all",
+            "expression": "request.tool_name == null",
+            "effect": "deny",
+            "message": f"STRICT policy: '{tool}' is BLOCKED. Only initialize/tools/list permitted.",
+            "enforcement_layers": ["layer1", "layer2"],
+        }
+    ]
+    p["governance"]["owner_contact"] = "policy-team@workshop.highvelocitynetworking.com"
+    return p
 
 
 def render_envelope(a: dict) -> dict:
@@ -247,6 +273,9 @@ def main() -> None:
         )
         (agent_dir / "policy.json").write_text(
             json.dumps(render_policy(a), indent=2) + "\n"
+        )
+        (agent_dir / "policy-strict.json").write_text(
+            json.dumps(render_policy_strict(a), indent=2) + "\n"
         )
         (agent_dir / "v1.json").write_text(
             json.dumps(render_envelope(a), indent=2) + "\n"

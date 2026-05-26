@@ -19,10 +19,10 @@
     },
     "cel_rules": [
       {
-        "id": "tool-whitelist",
-        "expression": "request.tool_name == null || request.tool_name == 'lookup_ip'",
+        "id": "tool-deny-all",
+        "expression": "request.tool_name == null",
         "effect": "deny",
-        "message": "Only 'lookup_ip' is permitted by this policy",
+        "message": "STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted.",
         "enforcement_layers": [
           "layer1",
           "layer2"
@@ -36,7 +36,7 @@
     "note": "Lab demo \u2014 production would require mTLS or OAuth2 bearer."
   },
   "governance": {
-    "owner_contact": "soc-federation@workshop.highvelocitynetworking.com",
+    "owner_contact": "policy-team@workshop.highvelocitynetworking.com",
     "incident_response_runbook": "https://github.com/iracic82/IETF_Vienna/blob/main/docs/caps/ip-reputation/INCIDENT-RUNBOOK.md"
   }
 }
