@@ -301,15 +301,81 @@ The lookup DB doesn't know about that IP. Watch the agent honestly
 report `verdict: unknown` (not "probably safe" or "I'll guess from
 training"). Honest reporting is part of the federation contract.
 
+## Bonus 3 (optional) — watch the SDK caller-side guard deny a call
+
+> Skip this section if you're short on time. It shows what the
+> [dns-aid SDK](https://github.com/infobloxopen/dns-aid-core/tree/main/src/dns_aid/sdk/policy)
+> caller-side guard does **before** an invocation ever leaves the
+> agent process. Doesn't replace agentgateway enforcement — it adds
+> a *first* layer that catches obvious policy violations without a
+> network round-trip.
+
+### What's already happening (default policy)
+
+Every time the agent in this lab invokes `lookup_ip`, the SDK guard
+runs against the policy at `${CAP_BASE_URL}/ip-reputation/policy.json`.
+That policy whitelists `lookup_ip` via a CEL rule, so the call passes
+through silently. You can see the guard line in the agent terminal:
+
+```
+  [sdk-guard] tool='lookup_ip' → ALLOWED by SDK caller guard
+```
+
+### Override to a STRICT policy that denies lookup_ip
+
+A second policy doc lives next to the default at
+`${CAP_BASE_URL}/ip-reputation/policy-strict.json`. Its CEL rule
+**denies every tool call** (only `initialize` / `tools/list` allowed).
+Point the agent at that one via the `POLICY_OVERRIDE` env, then ask
+the same question:
+
+```run
+docker exec -i -e POLICY_OVERRIDE=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json strands-agent python /app/agent.py <<< "Is 185.220.101.45 malicious?"
+```
+
+Expected — the SDK guard fires, the network call is **never made**,
+and the model's reply explains the denial:
+
+```
+  [tool] call_agent_tool({tool_name: 'lookup_ip', ...})
+  [sdk-guard] tool='lookup_ip' → DENIED: cel:tool-deny-all: STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted.
+  [result] {"success": false, "blocked_by": "dns-aid SDK caller-side guard (Layer 1)", ...}
+
+agent> I was unable to make the lookup. The dns-aid SDK caller-side guard
+       denied the call to lookup_ip per the published policy at …/policy-strict.json
+       (CEL rule 'tool-deny-all'). No network call was made.
+```
+
+### Why this matters
+
+Three independent enforcement layers were exercised in this lab:
+
+| Layer | Where | What it caught |
+|---|---|---|
+| **Layer 1 — caller SDK** (this bonus) | inside the agent process | Refused to call a tool the published policy denies — *before* any network packet leaves |
+| **Layer 2 — target SDK** (not exercised in this lab; same evaluator runs as ASGI middleware) | inside the agent SERVER | Would also reject if the caller skipped the guard |
+| **Layer 3 — runtime sidecar (agentgateway)** | independent proxy in front of the target | Would enforce policy regardless of SDK cooperation (we use it here for routing, not policy yet — IETF2 workshop adds CEL policies on the gateway) |
+
+All three read the **same policy document** via the same evaluator.
+Single source of truth. Multiple independent enforcement points.
+That's the "defence in depth" the DNS-AID protocol architects for.
+
+### Restore the default
+
+The `POLICY_OVERRIDE` env was set per `docker exec` invocation, so the
+next agent run (without `-e POLICY_OVERRIDE`) goes back to the
+permissive default — no cleanup needed.
+
 ## The DAWN argument, in one paragraph
 
 You just watched an AI agent **discover** a capability via standards-based
-DNS (no SDK, no registry), **verify** its authenticity (DNSSEC chain to
-root + cryptographic cap doc available), and **invoke** through a
-runtime enforcement layer (agentgateway with xDS-driven routes). The
-agent never knew the endpoint before the question was asked. It only
-knew the naming convention. **Discovery, identity, and policy are
-separate layers — governed at different times, by different teams,
+DNS (no hardcoded endpoint, no central registry), **verify** its
+authenticity (DNSSEC chain to root + cryptographic cap doc), **gate**
+the invocation via the SDK caller-side policy guard, and **invoke**
+through a runtime enforcement layer (agentgateway, xDS-driven routes).
+The agent never knew the endpoint before the question was asked. It
+only knew the naming convention. **Discovery, identity, and policy
+are separate layers — governed at different times, by different teams,
 using protocols that already exist.** That's the DAWN argument made
 literal.
 
