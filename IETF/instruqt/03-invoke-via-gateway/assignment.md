@@ -351,17 +351,42 @@ docker exec -i -e POLICY_OVERRIDE=https://ietf-vienna-cap-docs.s3.amazonaws.com/
 ```
 
 Expected — the SDK guard fires, the network call is **never made**,
-and the model's reply explains the denial:
+and the model's reply surfaces the denial reason in the audit chain.
+Actual output from the lab:
 
 ```
-  [tool] call_agent_tool({tool_name: 'lookup_ip', ...})
+  [tool] discover_agents_via_dns({...})
+  [cap-fetch] GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json
+  [dnssec]   _ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com → ad
+  [tool] call_agent_tool({'tool_name': 'lookup_ip', 'arguments': {'ip': '185.220.101.45'}, ...})
   [sdk-guard] tool='lookup_ip' → DENIED: cel:tool-deny-all: STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted.
-  [result] {"success": false, "blocked_by": "dns-aid SDK caller-side guard (Layer 1)", ...}
+  [result] {"success": false, "blocked_by": "dns-aid SDK caller-side guard (Layer 1)",
+            "reason": "DENIED: cel:tool-deny-all: STRICT policy: 'lookup_ip' is BLOCKED...",
+            "policy_uri": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json",
+            "telemetry": {"latency_ms": 0, "status": "policy_denied"}}
 
-agent> I was unable to make the lookup. The dns-aid SDK caller-side guard
-       denied the call to lookup_ip per the published policy at …/policy-strict.json
-       (CEL rule 'tool-deny-all'). No network call was made.
+agent> I am sorry, but my request to the federation was blocked by a security policy.
+       I cannot provide a verdict for this IP address.
+
+       **Verdict:** Blocked by policy
+       **Reason:** DENIED: cel:tool-deny-all: STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted.
+       **Trust chain (audit):**
+       - SVCB record: _ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com
+       - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)
+       - JWS signature: missing
+       - SDK guard: dns-aid SDK caller-side guard (Layer 1)
+       - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json (fetched, agent=ip-reputation, version=1.0.0)
+       - Policy: https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json
+       - Invoked via: missing
 ```
+
+**Notice three things in that output:**
+- `telemetry.latency_ms = 0` — the call never left the agent process.
+  The SDK guard refused before any network request.
+- `policy_uri` points at the strict variant — the SDK fetched it,
+  evaluated, denied locally.
+- The trust chain shows `Policy: …/policy-strict.json` so the analyst
+  can audit exactly which policy was in effect.
 
 ### Why this matters — four independent enforcement layers, one policy
 
