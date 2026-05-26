@@ -69,7 +69,12 @@ services:
   # ~5s with no gateway restart. The static config file only sets the
   # xdsAddress and admin/stats addresses.
   agentgateway:
-    image: ghcr.io/agentgateway/agentgateway:latest
+    # Pinned to the latest STABLE release. ':latest' currently resolves
+    # to v1.3.0-alpha.1 which has a delta-xDS data-plane application
+    # regression — routes appear in /config_dump but the data plane
+    # returns 404 until the gateway re-subscribes (restart). Stable
+    # v1.2.1 doesn't exhibit this. Bump deliberately after testing.
+    image: ghcr.io/agentgateway/agentgateway:v1.2.1
     container_name: agentgateway
     command: ["-f", "/etc/agentgateway/config.yaml"]
     environment:

@@ -23,7 +23,14 @@
     forward . 1.1.1.1 9.9.9.9 {
         prefer_udp
     }
-    cache 30
+    # Short success TTL respects SVCB --ttl 30; very short negative TTL
+    # so NXDOMAIN cached BEFORE the student publishes expires fast.
+    # Without this, translator polls during the window where CoreDNS
+    # still says "no record" even though Route 53 has it.
+    cache {
+        success 9984 30
+        denial 1024 5
+    }
 }
 
 . {
@@ -34,5 +41,12 @@
     forward . 1.1.1.1 9.9.9.9 {
         prefer_udp
     }
-    cache 30
+    # Short success TTL respects SVCB --ttl 30; very short negative TTL
+    # so NXDOMAIN cached BEFORE the student publishes expires fast.
+    # Without this, translator polls during the window where CoreDNS
+    # still says "no record" even though Route 53 has it.
+    cache {
+        success 9984 30
+        denial 1024 5
+    }
 }

@@ -224,13 +224,28 @@ curl -sw '\nHTTP %{http_code}\n' \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 
 # 2. Real tool call — get a verdict for a known-bad IP.
-# Note: MCP servers respond in Server-Sent Events format (`data: {...}`
-# per line). Strip the `data:` prefix before piping to json.tool.
-curl -s \
-    -X POST http://localhost:3000/ip-reputation/mcp \
+#
+# MCP Streamable HTTP is session-bound: `initialize` returns an
+# Mcp-Session-Id header that subsequent calls MUST echo back.
+# (a) capture the session id from initialize response headers
+# (b) reuse it in tools/call
+# The response body is SSE (`data: {…}` per line) — strip the prefix
+# before piping to json.tool.
+
+SESSION_ID=$(curl -sD - -X POST http://localhost:3000/ip-reputation/mcp \
     -H 'content-type: application/json' \
     -H 'accept: application/json, text/event-stream' \
     -H 'mcp-protocol-version: 2025-03-26' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}' \
+    -o /dev/null | grep -i '^Mcp-Session-Id:' | awk '{print $2}' | tr -d '\r')
+
+echo "session: ${SESSION_ID}"
+
+curl -s -X POST http://localhost:3000/ip-reputation/mcp \
+    -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' \
+    -H 'mcp-protocol-version: 2025-03-26' \
+    -H "mcp-session-id: ${SESSION_ID}" \
     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lookup_ip","arguments":{"ip":"185.220.101.45"}}}' \
     | sed -n 's/^data: //p' | python3 -m json.tool
 ```
