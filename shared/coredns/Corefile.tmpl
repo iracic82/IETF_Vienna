@@ -23,10 +23,29 @@
     forward . 1.1.1.1 9.9.9.9 {
         prefer_udp
     }
-    # Simple cache: 30s TTL. Earlier attempt to split into
-    # success/denial buckets broke SVCB record caching (CoreDNS
-    # returned NOERROR with empty answer section for SVCB).
-    cache 30
+    # Cache: 30s TTL with prefetch + short serve_stale.
+    # The TTL=30 is dictated by the SVCB record TTL the publish step
+    # sets (--ttl 30) so the C2 delete-demo lands in under a minute.
+    #
+    # prefetch 5 1m 30%: if a record has been queried ≥5 times in the
+    # last minute (translator polls every 5s = 12+ queries/min), CoreDNS
+    # proactively re-fetches it from upstream when <30% of its TTL
+    # remains (~21s in). Result: hot SVCB record never sees a cache
+    # miss, so the translator never gets the empty-answer flap that
+    # Cloudflare 1.1.1.1 occasionally returns for SVCB queries.
+    #
+    # serve_stale 30s: safety net — if both prefetch fails AND fresh
+    # upstream returns SERVFAIL, keep serving the last-good answer for
+    # 30s. Default 'verify' mode means stale is NOT served if upstream
+    # returns a valid empty answer (so delete-demo still propagates).
+    #
+    # Earlier attempt to split into success/denial buckets broke SVCB
+    # caching (NOERROR with empty answer section) — keep the simple
+    # cache form with these two additions only.
+    cache 30 {
+        prefetch 5 1m 30%
+        serve_stale 30s
+    }
 }
 
 . {
@@ -37,8 +56,27 @@
     forward . 1.1.1.1 9.9.9.9 {
         prefer_udp
     }
-    # Simple cache: 30s TTL. Earlier attempt to split into
-    # success/denial buckets broke SVCB record caching (CoreDNS
-    # returned NOERROR with empty answer section for SVCB).
-    cache 30
+    # Cache: 30s TTL with prefetch + short serve_stale.
+    # The TTL=30 is dictated by the SVCB record TTL the publish step
+    # sets (--ttl 30) so the C2 delete-demo lands in under a minute.
+    #
+    # prefetch 5 1m 30%: if a record has been queried ≥5 times in the
+    # last minute (translator polls every 5s = 12+ queries/min), CoreDNS
+    # proactively re-fetches it from upstream when <30% of its TTL
+    # remains (~21s in). Result: hot SVCB record never sees a cache
+    # miss, so the translator never gets the empty-answer flap that
+    # Cloudflare 1.1.1.1 occasionally returns for SVCB queries.
+    #
+    # serve_stale 30s: safety net — if both prefetch fails AND fresh
+    # upstream returns SERVFAIL, keep serving the last-good answer for
+    # 30s. Default 'verify' mode means stale is NOT served if upstream
+    # returns a valid empty answer (so delete-demo still propagates).
+    #
+    # Earlier attempt to split into success/denial buckets broke SVCB
+    # caching (NOERROR with empty answer section) — keep the simple
+    # cache form with these two additions only.
+    cache 30 {
+        prefetch 5 1m 30%
+        serve_stale 30s
+    }
 }
