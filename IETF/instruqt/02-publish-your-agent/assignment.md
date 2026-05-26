@@ -308,6 +308,19 @@ dns-aid discover "${SANDBOX_SLUG}.${ZONE}"
 Shows the agent record from DNS, including the cap_uri (S3 URL) and
 policy_uri. The agent in C3 will fetch these.
 
+> **You'll see a yellow warning** like:
+> ```
+> [warning] Agent Card URL blocked by SSRF protection
+>           error="Cannot resolve hostname 'fastmcp-ip-reputation' …"
+>           url=https://fastmcp-ip-reputation/.well-known/agent-card.json
+> ```
+> This is harmless. dns-aid tries to fetch the optional A2A
+> `agent-card.json` from the SVCB target host. The target name only
+> resolves inside the docker network (it's the backend container
+> name), so dns-aid's safety check refuses the fetch — and falls
+> back to the TXT/cap_uri data, which is what we actually use.
+> The CLI's job is done; discovery completed with `agents_found=1`.
+
 ## Try the demo's punchline — delete and watch the route vanish
 
 > ⚠️ This deletes the record you just published. You'll need to

@@ -59,6 +59,17 @@ CRITICAL RULES:
 2. NEVER fabricate audit-trail details. Only report what tools returned.
 3. EVERY user question requires at least one tool call before you answer.
 
+ARGUMENT HYGIENE (very important):
+  When calling a tool, ONLY pass the arguments the tool's schema actually
+  declares. NEVER invent placeholder fields like "_unused" or "a_unused"
+  even if you see them in the schema — they exist solely to satisfy the
+  Vertex SDK's requirement that object schemas have at least one property.
+  Sending them as real arguments causes the MCP backend to error.
+
+  Concretely: call_agent_tool with tool_name="lookup_ip" takes ONLY
+      arguments = {{"ip": "<the IP>"}}
+  Do NOT include any other key under arguments.
+
 REQUIRED FLOW for IP queries:
   Step 1. Call discover_agents_via_dns with:
             domain   = "{SANDBOX_SLUG}.{ZONE}"
@@ -67,13 +78,15 @@ REQUIRED FLOW for IP queries:
           The wrapper auto-fetches the cap_uri (the published contract on
           S3) and inlines `__cap_doc` into the result. Read it.
   Step 2. Read the agent record. Expect these fields:
-            signature_status   ("verified" | "unsigned" | "missing")
-            signer_kid          (string if signature_status=="verified", else null)
-            dnssec_status       ("ad" | "no-ad" | "unsigned-zone" | "unknown")
             __cap_uri           the S3 URL the record points to
             __cap_doc           the parsed JSON contents of that URL
+            __policy_uri        URL of the policy doc (caller SDK reads it)
+            __dnssec_status     "ad" | "no-ad" | "servfail" | "unknown"
+            __invoked_via       (set AFTER you call call_agent_tool;
+                                 always the canonical agentgateway URL)
   Step 3. Call call_agent_tool with:
             tool_name = "lookup_ip"
+            endpoint  = "http://agentgateway:3000/ip-reputation/mcp"
             arguments = {{"ip": "<analyst's IP>"}}
   Step 4. Return ONLY what the federation actually replied, in this format:
 
@@ -82,19 +95,28 @@ REQUIRED FLOW for IP queries:
             **Sources:** <sources from tool>
             **Trust chain (audit):**
             - SVCB record: _<name>._<proto>._agents.<domain>
-            - DNSSEC: <ad-flag / not-enabled-in-lab>
-            - JWS signature: <signer kid / "not signed (cap doc unsigned)">
+            - DNSSEC: <see HONEST REPORTING below>
+            - JWS signature: not signed (cap doc unsigned)
+            - SDK guard: <__sdk_guard or "n/a">
             - Cap doc: <__cap_uri> (fetched, agent=<__cap_doc.agent>, version=<__cap_doc.version>)
-            - Policy: <__cap_doc.policy_uri or "none">
-            - Invoked via: <endpoint>
+            - Policy: <__policy_uri or "none">
+            - Invoked via: http://agentgateway:3000/<agent-name>/mcp
 
 HONEST REPORTING — report ONLY what's in the enrichment fields:
   - __dnssec_status=="ad"        → "DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)"
   - __dnssec_status=="no-ad"     → "DNSSEC: zone responded but no AD flag (unsigned chain)"
   - __dnssec_status=="servfail"  → "DNSSEC: SERVFAIL (broken chain)"
   - __dnssec_status=="unknown"   → "DNSSEC: status unknown (dig unavailable)"
-  - signature_status=="unsigned" → "JWS signature: not signed (cap doc unsigned)"
-  - signature_status=="verified" → "JWS signature: verified — signer <kid>"
+
+  JWS SIGNATURE IS ALWAYS "not signed (cap doc unsigned)" IN THIS LAB.
+  Route 53 cannot carry the JWS token (255-char TXT limit). NEVER claim
+  "verified" or invent a signer kid. If you're tempted, re-read this line.
+
+  Invoked via is ALWAYS "http://agentgateway:3000/<agent-name>/mcp" —
+  this is the canonical gateway path. Don't echo back whatever URL was
+  in the tool's call_agent_tool args; the wrapper rewrites them and the
+  actual transport always goes via agentgateway.
+
   - __cap_doc not null           → "Cap doc: <__cap_uri> (fetched, agent=<__cap_doc.agent>, version=<__cap_doc.version>)"
   - __cap_doc is null            → "Cap doc: <__cap_uri> (fetch failed)"
   - __policy_uri present         → "Policy: <__policy_uri>"
@@ -454,6 +476,20 @@ async def main() -> None:
                             if agent_name == "ip":
                                 agent_name = "ip-reputation"
                             args["endpoint"] = _canonical_endpoint(args["endpoint"], agent_name=agent_name)
+                        # Belt-and-braces: even though the system prompt
+                        # instructs Gemini to not pass placeholder args,
+                        # strip any '_unused*' / 'a_unused*' keys the
+                        # model still emits. They come from our
+                        # _sanitize_schema's empty-object workaround.
+                        if "arguments" in args and isinstance(args["arguments"], dict):
+                            args["arguments"] = {
+                                k: v for k, v in args["arguments"].items()
+                                if not (k == "_unused" or k.startswith("a_unused"))
+                            }
+                        for placeholder_key in list(args.keys()):
+                            if placeholder_key == "_unused" or placeholder_key.startswith("a_unused"):
+                                args.pop(placeholder_key, None)
+
                         print(f"  [tool] {name}({args})")
 
                         # ── DNS-AID SDK caller-side policy guard ─────

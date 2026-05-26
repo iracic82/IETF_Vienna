@@ -223,14 +223,16 @@ curl -sw '\nHTTP %{http_code}\n' \
     -H 'mcp-protocol-version: 2025-03-26' \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 
-# 2. Real tool call — get a verdict for a known-bad IP
+# 2. Real tool call — get a verdict for a known-bad IP.
+# Note: MCP servers respond in Server-Sent Events format (`data: {...}`
+# per line). Strip the `data:` prefix before piping to json.tool.
 curl -s \
     -X POST http://localhost:3000/ip-reputation/mcp \
     -H 'content-type: application/json' \
     -H 'accept: application/json, text/event-stream' \
     -H 'mcp-protocol-version: 2025-03-26' \
     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lookup_ip","arguments":{"ip":"185.220.101.45"}}}' \
-    | python3 -m json.tool
+    | sed -n 's/^data: //p' | python3 -m json.tool
 ```
 
 The second call returns the same verdict object the AI agent gets in C3
