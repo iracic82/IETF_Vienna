@@ -532,7 +532,24 @@ async def main() -> None:
                             result_text = json.dumps({"error": f"unknown tool: {name}"})
                         else:
                             try:
-                                tool_result = await session.call_tool(name, args)
+                                # Retry transparently on transient
+                                # "Invocation failed" from call_agent_tool —
+                                # the first invocation through a freshly-
+                                # materialised xDS route can flake with an
+                                # MCP-session race, ~17ms latency. One
+                                # retry with a brief delay covers it.
+                                async def _invoke():
+                                    return await session.call_tool(name, args)
+
+                                tool_result = await _invoke()
+                                if name == "call_agent_tool":
+                                    _peek = "".join(
+                                        getattr(b, "text", "") for b in tool_result.content
+                                    )
+                                    if '"status": "error"' in _peek or '"success": false' in _peek:
+                                        await asyncio.sleep(0.8)
+                                        print("  [retry] transient invocation error, retrying once")
+                                        tool_result = await _invoke()
                                 pieces = []
                                 for block in tool_result.content:
                                     if hasattr(block, "text"):

@@ -278,15 +278,22 @@ before letting the agent invoke `lookup_ip`.
 > route-materialized usually happens in <10s. In a production federation,
 > design with this caching window in mind.
 
-## Verify the xDS layer caught up
+## Verify the xDS layer caught up + warm up the gateway
 
-Within 5 seconds of publishing, the gateway should have a route:
+Within ~10 seconds of publishing, the gateway should have the route.
+Run the verify-curl below — it does two things:
+  1. Confirms the data plane is actually serving the route (HTTP 200).
+  2. **Warms up** the MCP session path. The very first request through
+     a freshly-materialised route can flake with "Invocation failed"
+     because the agentgateway↔fastmcp MCP handshake races with route
+     activation. By running curl first, we prime the path so C3's
+     agent invocation succeeds first try.
 
 ```run
-sleep 6
-curl -s http://localhost:15000/api/routes | jq .
+sleep 8
+curl -s http://localhost:15000/config_dump | python3 -c "import json,sys; d=json.load(sys.stdin); ls=list(d.get('binds',[{}])[0].get('listeners',{}).values()); print('routes:  ', list((ls[0] if ls else {}).get('routes',{}).keys()) if ls else 'no listeners'); print('backends:', len(d.get('backends',[])))"
 
-# Or — try invoking. Now returns 200 instead of 404.
+# Warm up the MCP route — should print HTTP 200
 curl -sw '\nHTTP %{http_code}\n' \
     -X POST http://localhost:3000/ip-reputation/mcp \
     -H 'content-type: application/json' \
