@@ -351,42 +351,61 @@ docker exec -i -e POLICY_OVERRIDE=https://ietf-vienna-cap-docs.s3.amazonaws.com/
 ```
 
 Expected — the SDK guard fires, the network call is **never made**,
-and the model's reply surfaces the denial reason in the audit chain.
-Actual output from the lab:
+and the model's reply surfaces the denial reason. Actual output from
+the lab:
 
 ```
-  [tool] discover_agents_via_dns({...})
-  [cap-fetch] GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json
+analyst>  [tool] discover_agents_via_dns({...})
+[info     ] Discovery complete             agents_found=1 time_ms=51.94
   [dnssec]   _ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com → ad
+  [result] {"__cap_uri": "...v1.json", "__cap_doc": {...}}
+
   [tool] call_agent_tool({'tool_name': 'lookup_ip', 'arguments': {'ip': '185.220.101.45'}, ...})
+2026-05-26 09:46:18 [debug ] policy.cel_backend             backend=rust
+2026-05-26 09:46:18 [warning] mcp.policy_denied              method=tools/call mode=permissive
+                                                              policy_uri=...policy-strict.json
+                                                              protocol=mcp tool_name=lookup_ip
+                                                              violations=["cel:tool-deny-all:STRICT policy:
+                                                                          'lookup_ip' is BLOCKED.
+                                                                          Only initialize/tools/list permitted."]
   [sdk-guard] tool='lookup_ip' → DENIED: cel:tool-deny-all: STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted.
-  [result] {"success": false, "blocked_by": "dns-aid SDK caller-side guard (Layer 1)",
-            "reason": "DENIED: cel:tool-deny-all: STRICT policy: 'lookup_ip' is BLOCKED...",
-            "policy_uri": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json",
-            "telemetry": {"latency_ms": 0, "status": "policy_denied"}}
+  [result] {
+    "success": false,
+    "blocked_by": "dns-aid SDK caller-side guard (Layer 1)",
+    "reason": "cel:tool-deny-all: STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted.",
+    "policy_uri": "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json",
+    "violations": [
+      {
+        "rule": "cel:tool-deny-all",
+        "detail": "STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted."
+      }
+    ],
+    "telemetry": {"latency_ms": 0, "status": "policy_denied"}
+  }
 
-agent> I am sorry, but my request to the federation was blocked by a security policy.
-       I cannot provide a verdict for this IP address.
+agent> The lookup for 185.220.101.45 was blocked by a security policy.
+       I cannot provide a verdict.
 
-       **Verdict:** Blocked by policy
-       **Reason:** DENIED: cel:tool-deny-all: STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted.
-       **Trust chain (audit):**
-       - SVCB record: _ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com
-       - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)
-       - JWS signature: missing
-       - SDK guard: dns-aid SDK caller-side guard (Layer 1)
-       - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json (fetched, agent=ip-reputation, version=1.0.0)
-       - Policy: https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json
-       - Invoked via: missing
+       **Reason:** The tool call was denied by the agent's security policy.
+       The policy URI is `https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json`,
+       and the reason given was: "STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted."
 ```
 
-**Notice three things in that output:**
+**Notice five things in that output:**
+- `mcp.policy_denied` is a **structured event from the official dns-aid
+  SDK** (`dns_aid.sdk.policy.guard`) — same telemetry the dns-aid MCP
+  server emits in production.
+- `backend=rust` — the CEL rule is being evaluated by the SDK's
+  high-performance Rust CEL backend (enabled by the `cel` extra).
 - `telemetry.latency_ms = 0` — the call never left the agent process.
   The SDK guard refused before any network request.
-- `policy_uri` points at the strict variant — the SDK fetched it,
-  evaluated, denied locally.
-- The trust chain shows `Policy: …/policy-strict.json` so the analyst
-  can audit exactly which policy was in effect.
+- `violations[]` is a structured list of `{rule, detail}` — the agent's
+  audit log gets exactly which CEL rule fired and why, not just a
+  string. This is the same shape the target-side ASGI middleware would
+  emit if the call had reached the server.
+- The model receives the structured reason and *gracefully* refuses
+  with a clean explanation — it doesn't retry forever, it doesn't
+  hallucinate a verdict, it doesn't pretend the policy isn't there.
 
 ### Why this matters — four independent enforcement layers, one policy
 

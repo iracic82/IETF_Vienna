@@ -310,18 +310,15 @@ then warms up the MCP session path:
      succeed first try.
 
 ```run
-# Poll until the gateway has the route (max ~60s)
-for i in $(seq 1 12); do
-    routes=$(curl -s http://localhost:15000/config_dump | python3 -c "import json,sys
-d=json.load(sys.stdin)
-ls=list(d.get('binds',[{}])[0].get('listeners',{}).values())
-print(len((ls[0] if ls else {}).get('routes',{})))")
+# Poll until the gateway has the route (≤12s, 4 polls × 3s)
+for i in 1 2 3 4; do
+    routes=$(curl -s http://localhost:15000/config_dump | python3 -c "import json,sys; d=json.load(sys.stdin); ls=list(d.get('binds',[{}])[0].get('listeners',{}).values()); print(len((ls[0] if ls else {}).get('routes',{})))")
     if [ "$routes" -gt 0 ]; then
         echo "✓ poll $i: route materialised"
         break
     fi
-    echo "  poll $i: 0 routes — waiting 5s"
-    sleep 5
+    echo "  poll $i: 0 routes — waiting 3s"
+    sleep 3
 done
 
 # Show what landed
@@ -395,17 +392,14 @@ NoAnswer from after the delete.
 ```run
 sudo docker restart coredns && sleep 3
 
-for i in $(seq 1 12); do
-    routes=$(curl -s http://localhost:15000/config_dump | python3 -c "import json,sys
-d=json.load(sys.stdin)
-ls=list(d.get('binds',[{}])[0].get('listeners',{}).values())
-print(len((ls[0] if ls else {}).get('routes',{})))")
+for i in 1 2 3 4; do
+    routes=$(curl -s http://localhost:15000/config_dump | python3 -c "import json,sys; d=json.load(sys.stdin); ls=list(d.get('binds',[{}])[0].get('listeners',{}).values()); print(len((ls[0] if ls else {}).get('routes',{})))")
     if [ "$routes" -gt 0 ]; then
         echo "✓ poll $i: route materialised"
         break
     fi
-    echo "  poll $i: 0 routes — waiting 5s"
-    sleep 5
+    echo "  poll $i: 0 routes — waiting 3s"
+    sleep 3
 done
 ```
 
