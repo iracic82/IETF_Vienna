@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Reproduce the translator's exact DNS query path from inside the container.
+# Reproduce the translator's exact DNS query path from inside the
+# real translator container. Run as student (sudoers grants docker).
 set -uo pipefail
 source /opt/lab/lab.env 2>/dev/null || source /tmp/sandbox.env
 
-CONTAINER=${1:-translator-debug}
+CONTAINER=${1:-translator}
+DNS_SERVER_HOST=${2:-coredns}
 
 cat > /tmp/_translator_resolve.py <<'PY'
 """Reproduce translator's discovery query exactly."""
@@ -15,7 +17,7 @@ ZONE = os.environ["ZONE"]
 DOMAIN = f"{SLUG}.{ZONE}"
 NAME = "ip-reputation"
 PROTOCOL = "mcp"
-DNS_SERVER = "1.1.1.1"
+DNS_SERVER = os.environ.get("DNS_SERVER_HOST", "coredns")
 DNS_PORT = 53
 
 DNS_AID_FQDN = "_{name}._{protocol}._agents.{domain}"
@@ -52,5 +54,9 @@ except Exception as e:
     print(f"Exception ({type(e).__name__}): {e}")
 PY
 
-docker cp /tmp/_translator_resolve.py ${CONTAINER}:/tmp/_translator_resolve.py
-docker exec -e SANDBOX_SLUG=${SANDBOX_SLUG} -e ZONE=${ZONE} ${CONTAINER} python3 /tmp/_translator_resolve.py
+sudo docker cp /tmp/_translator_resolve.py ${CONTAINER}:/tmp/_translator_resolve.py
+sudo docker exec \
+    -e SANDBOX_SLUG=${SANDBOX_SLUG} \
+    -e ZONE=${ZONE} \
+    -e DNS_SERVER_HOST=${DNS_SERVER_HOST} \
+    ${CONTAINER} python3 /tmp/_translator_resolve.py
