@@ -168,6 +168,26 @@ dns-aid publish \
 > "delete → route vanishes" lands within a minute. Production
 > federations typically use 300–3600s to reduce DNS load.
 
+## Flush the local resolver's negative cache
+
+```run
+sudo docker restart coredns && sleep 3
+```
+
+> **Why this matters:** when the sandbox booted, the translator
+> immediately started polling DNS — *before* you published anything.
+> CoreDNS got an empty answer and cached it for up to 30s (the
+> negative-cache window). Even now that the record exists in Route
+> 53, CoreDNS would keep serving its stale "no SVCB" answer to the
+> translator until that cache expires. Restarting CoreDNS wipes the
+> cache so the very next translator poll resolves the new SVCB.
+>
+> Production resolvers face the same problem — the
+> [DNS negative-caching RFC (RFC 2308)](https://datatracker.ietf.org/doc/html/rfc2308)
+> defines this. Real federations either (a) publish records *before*
+> any client polls, or (b) tune SOA min-TTL so the negative window
+> matches publish cadence.
+
 What just happened, in order:
 
 1. **dns-aid serialised the record** (SVCB with standard SvcParams +
@@ -267,30 +287,44 @@ before letting the agent invoke `lookup_ip`.
 
 > **Real-world caveat on DNS caching:** if you ever notice the gateway
 > taking longer than 5s to pick up a newly published agent, you're
-> hitting **negative caching at the public resolver**. Most resolvers
-> (including 1.1.1.1) cache NXDOMAIN responses for the duration of the
-> parent zone's SOA *minimum* field — typically 5–15 minutes. If a
-> resolver queried for an agent BEFORE you published it, it'll keep
-> serving NXDOMAIN until that cache expires.
->
-> **In this lab the translator polls the local CoreDNS resolver** (which
-> has no negative-cache pollution from earlier queries), so publish →
-> route-materialized usually happens in <10s. In a production federation,
-> design with this caching window in mind.
+> hitting **negative caching**. Resolvers cache "no such record"
+> answers for the duration of the parent zone's SOA *minimum* field —
+> public resolvers like 1.1.1.1 cap this at 5–15 minutes; local
+> CoreDNS in this lab is capped at 30s. We just flushed CoreDNS in
+> the previous step to skip that window — production federations
+> instead design publish cadence around it.
 
 ## Verify the xDS layer caught up + warm up the gateway
 
-Within ~10 seconds of publishing, the gateway should have the route.
-Run the verify-curl below — it does two things:
-  1. Confirms the data plane is actually serving the route (HTTP 200).
-  2. **Warms up** the MCP session path. The very first request through
-     a freshly-materialised route can flake with "Invocation failed"
-     because the agentgateway↔fastmcp MCP handshake races with route
-     activation. By running curl first, we prime the path so C3's
-     agent invocation succeeds first try.
+Within ~5–10 seconds of publishing (now that CoreDNS is flushed), the
+translator's next poll resolves the SVCB and pushes a snapshot to the
+gateway. The loop below polls `/config_dump` until the route appears,
+then warms up the MCP session path:
+
+  1. **Poll-until-materialised** shows you the route appearing live —
+     this is the moment "DNS record → runtime route" actually fires.
+  2. **The warm-up curl** prevents a first-call flake in C3: the very
+     first request through a freshly-materialised route can fail with
+     "Invocation failed" because the agentgateway↔fastmcp MCP
+     handshake races with route activation. Priming it here makes C3
+     succeed first try.
 
 ```run
-sleep 8
+# Poll until the gateway has the route (max ~60s)
+for i in $(seq 1 12); do
+    routes=$(curl -s http://localhost:15000/config_dump | python3 -c "import json,sys
+d=json.load(sys.stdin)
+ls=list(d.get('binds',[{}])[0].get('listeners',{}).values())
+print(len((ls[0] if ls else {}).get('routes',{})))")
+    if [ "$routes" -gt 0 ]; then
+        echo "✓ poll $i: route materialised"
+        break
+    fi
+    echo "  poll $i: 0 routes — waiting 5s"
+    sleep 5
+done
+
+# Show what landed
 curl -s http://localhost:15000/config_dump | python3 -c "import json,sys; d=json.load(sys.stdin); ls=list(d.get('binds',[{}])[0].get('listeners',{}).values()); print('routes:  ', list((ls[0] if ls else {}).get('routes',{}).keys()) if ls else 'no listeners'); print('backends:', len(d.get('backends',[])))"
 
 # Warm up the MCP route — should print HTTP 200
@@ -354,7 +388,26 @@ runtime has it. Remove a record → runtime forgets.
 ## Re-publish if you deleted
 
 Re-run the `dns-aid publish` command from the top of this challenge to
-restore the record before moving to C3.
+restore the record. Then **flush CoreDNS again** and wait for the
+route — same reason as before: the translator's last poll cached the
+NoAnswer from after the delete.
+
+```run
+sudo docker restart coredns && sleep 3
+
+for i in $(seq 1 12); do
+    routes=$(curl -s http://localhost:15000/config_dump | python3 -c "import json,sys
+d=json.load(sys.stdin)
+ls=list(d.get('binds',[{}])[0].get('listeners',{}).values())
+print(len((ls[0] if ls else {}).get('routes',{})))")
+    if [ "$routes" -gt 0 ]; then
+        echo "✓ poll $i: route materialised"
+        break
+    fi
+    echo "  poll $i: 0 routes — waiting 5s"
+    sleep 5
+done
+```
 
 ## Success
 
