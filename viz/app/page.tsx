@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ReactFlow, Background, Controls, type Node, type Edge } from "@xyflow/react";
+import { ReactFlow, Background, Controls, MarkerType, type Node, type Edge } from "@xyflow/react";
 
 import { TopBar } from "@/components/explorer/top-bar";
 import { Sidebar } from "@/components/explorer/sidebar";
@@ -31,14 +31,46 @@ export default function Page() {
     data: { ...n.data, active: n.id === activeNodeId },
   }));
 
-  const decoratedEdges: Edge[] = flow.edges.map((e) => ({
-    ...e,
-    className: e.id === currentStep?.edgeFrom ? "flow-edge-animated" : undefined,
-    style: {
-      stroke: e.id === currentStep?.edgeFrom ? "var(--color-accent)" : "var(--color-border-strong)",
-      strokeWidth: 1.5,
-    },
-  }));
+  // Edge styling pass:
+  //   - Only the ACTIVE edge shows its label (inactive labels stripped
+  //     so 10 edges don't fight for the same horizontal band).
+  //   - Active edge: full opacity, accent colour, slightly thicker.
+  //   - Inactive edges: dim grey so they read as spatial context only.
+  //   - Labels get a solid panel-coloured background with a subtle
+  //     border so they sit cleanly on top of the dotted grid.
+  const decoratedEdges: Edge[] = flow.edges.map((e) => {
+    const isActive = e.id === currentStep?.edgeFrom;
+    return {
+      ...e,
+      type: "smoothstep",
+      label: isActive ? e.label : undefined,
+      className: isActive ? "flow-edge-animated" : undefined,
+      style: {
+        stroke: isActive ? "var(--color-accent)" : "var(--color-border-strong)",
+        strokeWidth: isActive ? 2.2 : 1,
+        opacity: isActive ? 1 : 0.35,
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 14,
+        height: 14,
+        color: isActive ? "var(--color-accent)" : "var(--color-border-strong)",
+      },
+      labelStyle: {
+        fontSize: 11,
+        fontWeight: 600,
+        fill: "var(--color-text)",
+      },
+      labelBgStyle: {
+        fill: "var(--color-bg-panel)",
+        fillOpacity: 1,
+        stroke: "var(--color-accent)",
+        strokeWidth: 1,
+      },
+      labelBgPadding: [8, 5] as [number, number],
+      labelBgBorderRadius: 3,
+    };
+  });
 
   const { events, connected } = useEventStream({ paused: mode !== "live" });
 

@@ -57,16 +57,25 @@ export type Flow = {
 //   - JWS: not signed in this lab (Route 53 TXT 255-char limit; honest report)
 // ──────────────────────────────────────────────────────────────────────
 
+// Layout: agent is the hub on the left at vertical center; the three
+// horizontal swim-lanes (discovery / artifacts / enforcement) extend
+// rightward. smoothstep edges + arrow markers give us clean orthogonal
+// routing so no diagonal slices through other nodes.
+//
+//     y=0    Discovery:    agent → dns-aid → CoreDNS → Route 53
+//     y=180  Artifacts:    agent → cap-s3            xDS-translator (polls R53)
+//     y=360  Enforcement:  agent → sdk-guard → gateway → FastMCP
+//
 const IETF_NODES: Node[] = [
-  { id: "agent",      position: { x:   0, y:   0 }, data: { label: "Vertex Gemini\nstrands-agent" }, type: "explorer" },
-  { id: "dns-aid",    position: { x: 240, y:   0 }, data: { label: "dns-aid MCP" }, type: "explorer" },
-  { id: "coredns",    position: { x: 480, y:   0 }, data: { label: "CoreDNS\nlocal resolver" }, type: "explorer" },
-  { id: "route53",    position: { x: 720, y:   0 }, data: { label: "Route 53\nlab.ccdesanity.com (DNSSEC)" }, type: "explorer" },
-  { id: "cap-s3",     position: { x: 240, y: 160 }, data: { label: "S3 cap doc\nietf-vienna-cap-docs" }, type: "explorer" },
-  { id: "translator", position: { x: 480, y: 160 }, data: { label: "xDS translator\npolls Route 53" }, type: "explorer" },
-  { id: "sdk-guard",  position: { x:   0, y: 160 }, data: { label: "dns-aid SDK guard\nLayer 1 (caller-side)" }, type: "explorer" },
-  { id: "gateway",    position: { x: 240, y: 320 }, data: { label: "agentgateway\nxDS-driven, path-mode" }, type: "explorer" },
-  { id: "fastmcp",    position: { x: 480, y: 320 }, data: { label: "FastMCP\nip-reputation" }, type: "explorer" },
+  { id: "agent",      position: { x:   0, y: 180 }, data: { label: "Vertex Gemini\nstrands-agent" }, type: "explorer" },
+  { id: "dns-aid",    position: { x: 260, y:   0 }, data: { label: "dns-aid MCP" }, type: "explorer" },
+  { id: "coredns",    position: { x: 520, y:   0 }, data: { label: "CoreDNS\nlocal resolver" }, type: "explorer" },
+  { id: "route53",    position: { x: 780, y:   0 }, data: { label: "Route 53\nlab.ccdesanity.com (DNSSEC)" }, type: "explorer" },
+  { id: "cap-s3",     position: { x: 260, y: 180 }, data: { label: "S3 cap doc\nietf-vienna-cap-docs" }, type: "explorer" },
+  { id: "translator", position: { x: 780, y: 180 }, data: { label: "xDS translator\npolls Route 53" }, type: "explorer" },
+  { id: "sdk-guard",  position: { x: 260, y: 360 }, data: { label: "dns-aid SDK guard\nLayer 1 (caller-side)" }, type: "explorer" },
+  { id: "gateway",    position: { x: 520, y: 360 }, data: { label: "agentgateway\nxDS-driven, path-mode" }, type: "explorer" },
+  { id: "fastmcp",    position: { x: 780, y: 360 }, data: { label: "FastMCP\nip-reputation" }, type: "explorer" },
 ];
 
 const IETF_EDGES: Edge[] = [
@@ -187,10 +196,140 @@ export const IETF_FLOW: Flow = {
   ],
 };
 
-// IETF2 placeholder flows (Spot the rogue / RPZ / Blast radius / Harden)
-// removed — those belong to the future 90-min IETF2 workshop. For the
-// current IETF Vienna (IETF1) lab the Explorer surfaces just one flow:
-// the IP-reputation discover-and-invoke story that runs across the
-// three challenges. Add IETF2_FLOWS back here once that lab is built.
+// ──────────────────────────────────────────────────────────────────────
+// IETF denied flow: same architecture, but POLICY_OVERRIDE points the
+// SDK at policy-strict.json so step 7b denies and the call never leaves
+// the agent. Mirrors C3 Bonus 3 — students can switch between this and
+// the happy path to see ALLOWED vs DENIED side-by-side.
+// ──────────────────────────────────────────────────────────────────────
 
-export const ALL_FLOWS: Flow[] = [IETF_FLOW];
+export const IETF_DENIED_FLOW: Flow = {
+  id: "ietf-discover-deny-strict",
+  title: "Discover & deny (strict policy)",
+  category: "trust",
+  nodes: IETF_NODES,
+  edges: IETF_EDGES,
+  steps: [
+    {
+      id: "1", label: "User asks", nodeId: "agent", kind: "tool_call",
+      detail: {
+        title: "Step 1 — Analyst asks the assistant (POLICY_OVERRIDE active)",
+        rightPaneTabs: ["request"],
+        sampleRequest: 'analyst> Is 185.220.101.45 malicious?\n\n# Environment for this run:\n#   POLICY_OVERRIDE=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json\n# The agent will still discover via DNS, fetch the cap doc, etc.\n# Only the SDK caller-side guard sees the strict policy.',
+      },
+    },
+    {
+      id: "2", label: "Discover tool call", nodeId: "agent", edgeFrom: "e1", kind: "tool_call",
+      detail: {
+        title: "Step 2 — Gemini selects discover_agents_via_dns",
+        rightPaneTabs: ["request"],
+        sampleRequest: 'tools/call {\n  "name": "discover_agents_via_dns",\n  "arguments": {\n    "domain": "${SLUG}.lab.ccdesanity.com",\n    "protocol": "mcp",\n    "name": "ip-reputation"\n  }\n}',
+      },
+    },
+    {
+      id: "3", label: "DNSSEC SVCB query", nodeId: "coredns", edgeFrom: "e2", kind: "dns_query",
+      detail: {
+        title: "Step 3 — DNS resolution (succeeds — discovery isn't gated by policy)",
+        rightPaneTabs: ["request", "response"],
+        sampleRequest: 'dig +dnssec SVCB _ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com',
+        sampleResponse: ';; flags: qr rd ra ad ◄── DNSSEC validated\n_ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com. 30 IN SVCB\n  1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000\n\nNote: discovery succeeds regardless of policy. The strict policy only\nfires at Layer 1 (SDK caller guard) when the agent is about to invoke.',
+      },
+    },
+    {
+      id: "4", label: "Cap doc fetch", nodeId: "cap-s3", edgeFrom: "e4", kind: "cap_fetch",
+      detail: {
+        title: "Step 4 — Cap doc fetched (still v1.json, not the strict policy)",
+        rightPaneTabs: ["request"],
+        sampleRequest: 'GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json\n\nThis still returns the cap doc envelope. The STRICT policy lives at a\ndifferent S3 URL (policy-strict.json) — fetched only by the SDK guard\nin step 7b, because POLICY_OVERRIDE is set on the agent process.',
+      },
+    },
+    {
+      id: "7", label: "MCP initialize", nodeId: "gateway", edgeFrom: "e7", kind: "mcp_open",
+      detail: {
+        title: "Step 7 — MCP session opens (still happens — gateway has the route)",
+        rightPaneTabs: ["request"],
+        sampleRequest: 'POST http://agentgateway:3000/ip-reputation/mcp\n{"method":"initialize", ...}\n\nThe initialize handshake completes — the gateway routes it through\nbecause the gateway itself has no policy enforcement wired here.\n(Layer 3 enforcement is the next IETF workshop.)',
+      },
+    },
+    {
+      id: "7b", label: "SDK guard — DENIED", nodeId: "sdk-guard", edgeFrom: "e9", kind: "jws_verify",
+      detail: {
+        title: "Step 7b — SDK caller-side guard fires → DENIED (no network call)",
+        rightPaneTabs: ["request", "response", "trust"],
+        sampleRequest: 'await check_target_policy(\n    policy_uri="…/policy-strict.json",   # via POLICY_OVERRIDE\n    tool_name="lookup_ip",\n    method="tools/call",\n    caller_id="strands-agent-ietf-lab",\n)',
+        sampleResponse: 'PolicyResult(\n  allowed=False,\n  violations=[\n    PolicyViolation(\n      rule="cel:tool-deny-all",\n      detail="STRICT policy: \'lookup_ip\' is BLOCKED. Only initialize/tools/list permitted."\n    )\n  ],\n)\n\n[sdk-guard] tool=\'lookup_ip\' → DENIED\n[result] {"success": false, "blocked_by": "dns-aid SDK caller-side guard (Layer 1)", "telemetry": {"latency_ms": 0, "status": "policy_denied"}}',
+        sampleTrust: 'STRICT policy CEL rule (request must be TRUE to be allowed):\n  request.tool_name == null  // only meta-methods like tools/list\n\nFor tool_name="lookup_ip" the expression evaluates FALSE → deny effect\nfires → PolicyResult.allowed=False.\n\nlatency_ms=0 — the network call was never made. The SDK guard\nrefused the invocation before the bytes left the process.',
+      },
+    },
+    {
+      id: "10", label: "Model refuses gracefully", nodeId: "agent", kind: "synthesis",
+      detail: {
+        title: "Step 10 — Gemini sees the structured denial and refuses cleanly",
+        rightPaneTabs: ["response"],
+        sampleResponse: 'agent> The lookup for 185.220.101.45 was blocked by a security policy.\n       I cannot provide a verdict.\n\n       **Reason:** The tool call was denied by the agent\'s security\n       policy. The policy URI is\n       https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json\n       and the reason given was: "STRICT policy: \'lookup_ip\' is BLOCKED.\n       Only initialize/tools/list permitted."\n\nNo verdict invented. No retry storm. No hallucinated source. The model\nreceives a structured PolicyResult and surfaces it honestly.',
+      },
+    },
+  ],
+};
+
+// ──────────────────────────────────────────────────────────────────────
+// "Where policy is enforced" overview: a non-animated, content-first
+// flow that walks through the four DNS-AID enforcement layers, lighting
+// up the relevant node for each layer so students see where it lives in
+// the topology. L0 (resolver/bind-aid) and L3 (gateway CEL) are
+// flagged as IETF2-future since this lab only exercises L1 and L2.
+// ──────────────────────────────────────────────────────────────────────
+
+export const IETF_LAYERS_OVERVIEW: Flow = {
+  id: "ietf-layers-overview",
+  title: "Where policy is enforced (4 layers)",
+  category: "governance",
+  nodes: IETF_NODES,
+  edges: IETF_EDGES,
+  steps: [
+    {
+      id: "L0", label: "Layer 0 — DNS resolver (bind-aid)", nodeId: "coredns", kind: "dns_query",
+      detail: {
+        title: "Layer 0 — DNS resolver enforcement (bind-aid RPZ)",
+        rightPaneTabs: ["request", "trust"],
+        sampleRequest: '# Compiled from the same policy.json into RPZ rules:\n_ip-reputation._mcp._agents.<zone>  CNAME  rpz-passthru.   ; allow\n_billing._mcp._agents.<zone>        CNAME  .              ; NXDOMAIN for non-permitted callers\n\nA DNSSEC-aware resolver with bind-aid loaded answers NXDOMAIN to\ncallers whose source IP / domain doesn\'t match the policy — the\nrequest never even leaves the caller\'s network namespace.',
+        sampleTrust: 'IN THIS LAB: NOT EXERCISED.\nCoreDNS here is a plain DNSSEC-validating forwarder; no RPZ loaded.\n\nIETF2 (90-min advanced workshop, planned): BIND + bind-aid integration\nthat compiles policy.json → RPZ → resolver refuses to even reveal\nwhere the target lives for unauthorised callers.',
+      },
+    },
+    {
+      id: "L1", label: "Layer 1 — Caller SDK", nodeId: "sdk-guard", kind: "jws_verify",
+      detail: {
+        title: "Layer 1 — dns-aid SDK caller-side guard",
+        rightPaneTabs: ["request", "trust"],
+        sampleRequest: 'from dns_aid.sdk.policy.guard import check_target_policy\n\nresult = await check_target_policy(\n    policy_uri=cap_doc.policy_uri,\n    tool_name="lookup_ip",\n    method="tools/call",\n    caller_id="my-agent",\n)\nif result.denied:\n    return refuse(result.reason)',
+        sampleTrust: 'IN THIS LAB: ✓ EXERCISED.\nCalled from agent_vertex.py before every tools/call. Default\npolicy.json allows lookup_ip; POLICY_OVERRIDE → policy-strict.json\ndenies (C3 Bonus 3).\n\nSAME PolicyEvaluator runs in all four layers — one document, four\nenforcement points.',
+      },
+    },
+    {
+      id: "L2", label: "Layer 2 — Target ASGI middleware", nodeId: "fastmcp", kind: "synthesis",
+      detail: {
+        title: "Layer 2 — target-side ASGI middleware",
+        rightPaneTabs: ["request", "trust"],
+        sampleRequest: '# In the agent SERVER (fastmcp), every incoming request runs:\nfrom dns_aid.sdk.policy.middleware import PolicyMiddleware\n\napp.add_middleware(PolicyMiddleware, policy_uri="…/policy.json")\n\n# Same PolicyEvaluator, same PolicyContext shape — mandatory layer,\n# regardless of whether the caller cooperated.',
+        sampleTrust: 'IN THIS LAB: ❌ NOT WIRED.\nThe fastmcp container in this lab serves raw — no PolicyMiddleware\nattached. To keep the lab focused on caller-side enforcement.\n\nIn a production federation: L2 is the MANDATORY layer. Even if a\ncaller skipped L1 or lied about identity, the target re-checks the\nSAME policy.json and denies.',
+      },
+    },
+    {
+      id: "L3", label: "Layer 3 — Runtime gateway", nodeId: "gateway", kind: "mcp_open",
+      detail: {
+        title: "Layer 3 — runtime sidecar gateway (CEL on the proxy)",
+        rightPaneTabs: ["request", "trust"],
+        sampleRequest: '# agentgateway TrafficPolicySpec could carry CEL expressions:\nspec.policy.cel.expression = "request.headers[\'authorization\'] != \'\'"\nspec.policy.cel.deny_message = "auth required"\n\n# Independent of caller SDK, independent of target server.\n# Routing, CORS, observability, future authn/authz.',
+        sampleTrust: 'IN THIS LAB: ☑ PARTIAL.\nagentgateway runs and routes traffic + carries our CORS policy, but\npolicy CEL on the gateway is an IETF2 add.\n\nThe FOUR-LAYER PROMISE: one signed PolicyDocument → resolver +\ncaller + target + gateway all read the same doc, all evaluate the\nsame rules, all refuse for the same reason. No single trust anchor.',
+      },
+    },
+  ],
+};
+
+// IETF2 placeholder flows removed — those belong to the future 90-min
+// IETF2 workshop. The current Vienna lab surfaces:
+//   1. happy-path discover-and-invoke story (IETF_FLOW)
+//   2. policy denial via POLICY_OVERRIDE (IETF_DENIED_FLOW)
+//   3. 4-layer enforcement model overview (IETF_LAYERS_OVERVIEW)
+
+export const ALL_FLOWS: Flow[] = [IETF_FLOW, IETF_DENIED_FLOW, IETF_LAYERS_OVERVIEW];
