@@ -47,7 +47,7 @@ Route 53. Three things will happen as a consequence:
 1. **The capability becomes discoverable** by any agent who knows
    the federation's naming convention (`_<name>._<proto>._agents.<zone>`).
 2. **The published cap_uri + policy_uri** point at the contract on S3.
-   In C3 the agent will fetch both: cap doc to know what tools are
+   In Challenge 3 the agent will fetch both: cap doc to know what tools are
    available, policy doc for the SDK caller-side enforcement check.
 3. **The xDS translator** notices the new SVCB on its next poll and
    pushes a `Route` + `Backend` to agentgateway via Envoy v3 ADS.
@@ -73,14 +73,14 @@ Route 53. Three things will happen as a consequence:
      ▼                            │  POST /ip-reputation/mcp
    ┌──────────────────────┐       ▼
    │  S3 cap docs         │   ┌─────────┐
-   │  - v1.json (envelope)│   │ caller  │ (Strands/Gemini agent in C3,
+   │  - v1.json (envelope)│   │ caller  │ (Strands/Gemini agent in Challenge 3,
    │  - mcp-server-card   │   │  or any │  or curl, or any MCP client)
    │  - policy.json       │   │  client │
    └──────────────────────┘   └─────────┘
        ▲     ▲
        │     │  fetched by SDK caller-side
        │     │  guard before invocation
-       │     │  (C3 audit trail shows it)
+       │     │  (Challenge 3 audit trail shows it)
 ```
 
 ## Read the contract first — three published documents
@@ -155,7 +155,7 @@ dns-aid publish \
     --ttl 30
 ```
 
-> **Why `--ttl 30`:** when you delete this record later (the C3 demo
+> **Why `--ttl 30`:** when you delete this record later (the Challenge 3 demo
 > punchline), downstream resolvers (1.1.1.1, 9.9.9.9, local CoreDNS)
 > keep serving the cached answer until the TTL expires. With the
 > default TTL=3600, a delete would take an hour to propagate —
@@ -203,7 +203,7 @@ What just happened, in order:
 > records (ECDSA P-256, signer kid in JWKS). On Route 53 the
 > signed token gets demoted to TXT, and the encoded JWS exceeds
 > Route 53's 255-char-per-string TXT limit. dns-aid v0.21 doesn't
-> yet auto-chunk long TXT values, so we publish unsigned. C3's
+> yet auto-chunk long TXT values, so we publish unsigned. Challenge 3's
 > audit chain reports this honestly as "JWS signature: not signed
 > (cap doc unsigned)" — we don't pretend the trust gap isn't there.
 
@@ -275,7 +275,7 @@ Expected output:
 "dnsaid_key65403=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json"
 ```
 
-The `dnsaid_key65400=...` line is your cap doc URL — the agent in C3
+The `dnsaid_key65400=...` line is your cap doc URL — the agent in Challenge 3
 will fetch this from S3 as part of its trust check. The `dnsaid_key65403=...`
 line is the policy URL — what the **SDK caller-side guard** evaluates
 before letting the agent invoke `lookup_ip`.
@@ -298,10 +298,10 @@ then warms up the MCP session path:
 
   1. **Poll-until-materialised** shows you the route appearing live —
      this is the moment "DNS record → runtime route" actually fires.
-  2. **The warm-up curl** prevents a first-call flake in C3: the very
+  2. **The warm-up curl** prevents a first-call flake in Challenge 3: the very
      first request through a freshly-materialised route can fail with
      "Invocation failed" because the agentgateway↔fastmcp MCP
-     handshake races with route activation. Priming it here makes C3
+     handshake races with route activation. Priming it here makes Challenge 3
      succeed first try.
 
 ```run
@@ -339,7 +339,7 @@ dns-aid discover "${SANDBOX_SLUG}.${ZONE}"
 ```
 
 Shows the agent record from DNS, including the cap_uri (S3 URL) and
-policy_uri. The agent in C3 will fetch these.
+policy_uri. The agent in Challenge 3 will fetch these.
 
 > **You'll see a yellow warning** like:
 > ```
@@ -357,7 +357,7 @@ policy_uri. The agent in C3 will fetch these.
 ## Try the demo's punchline — delete and watch the route vanish
 
 > ⚠️ This deletes the record you just published. You'll need to
-> re-publish before moving to C3. Skip this if you want to keep moving.
+> re-publish before moving to Challenge 3. Skip this if you want to keep moving.
 
 ```run
 # One-shot delete (pulled from the repo so terminal paste can't mangle
@@ -379,10 +379,29 @@ runtime has it. Remove a record → runtime forgets.
 
 ## Re-publish if you deleted
 
-Re-run the `dns-aid publish` command from the top of this challenge to
-restore the record. Then **flush CoreDNS again** and wait for the
+Re-run the `dns-aid publish` command to restore the record.
+```run
+dns-aid publish \
+    --name ip-reputation \
+    --domain "${SANDBOX_SLUG}.${ZONE}" \
+    --protocol mcp \
+    --endpoint fastmcp-ip-reputation \
+    --port 3000 \
+    --transport streamable-http \
+    --capability ip-reputation \
+    --version 1.0.0 \
+    --description "Threat-intel federation: IP reputation lookup" \
+    --cap-uri    "${CAP_BASE_URL}/ip-reputation/v1.json" \
+    --policy-uri "${CAP_BASE_URL}/ip-reputation/policy.json" \
+    --ttl 30
+```
+Then **flush CoreDNS again** and wait for the
 route — same reason as before: the translator's last poll cached the
 NoAnswer from after the delete.
+```run
+sudo docker restart coredns && sleep 3
+```
+
 
 ```run
 sudo docker restart coredns && sleep 3
@@ -401,4 +420,4 @@ done
 ## Success
 
 Auto-completes when the SVCB record resolves publicly. After publish,
-proceed to C3.
+proceed to Challenge 3.

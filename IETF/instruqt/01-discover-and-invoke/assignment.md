@@ -146,7 +146,7 @@ Two ways to confirm:
 
 - Sidebar counters: **Listeners 1**, **Routes 0**, **Backends 0**.
 
-  (Routes/backends will tick to 1 in C2 the moment you publish.)
+  (Routes/backends will tick to 1 in Challenge 2 the moment you publish.)
 
 **Way 2 — terminal.**
 
@@ -159,7 +159,7 @@ curl -sw '%{http_code}\n' -o /dev/null \
 # Expected: 404
 ```
 
-This is the **before** state. In challenge 2 you'll change it by
+This is the **before** state. In Challenge 2 you'll change it by
 publishing one DNS record — and the UI's counters will tick up
 automatically.
 

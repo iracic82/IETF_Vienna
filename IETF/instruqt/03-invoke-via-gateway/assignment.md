@@ -46,6 +46,36 @@ tool call. The command below starts the agent, pipes a single question
 in, and prints the full reply — one-shot, so the terminal returns to
 you when the answer arrives.
 
+> [!IMPORTANT]
+> The `ip-reputation` agent should already be published and discoverable
+> from when you completed it in **Challenge 2**. If you skipped that
+> step or restarted the lab, run the two blocks below before the agent
+> command — otherwise the agent won't find a tool to call.
+>
+> Re-publish the `ip-reputation` record:
+>
+> ```run
+> dns-aid publish \
+>     --name ip-reputation \
+>     --domain "${SANDBOX_SLUG}.${ZONE}" \
+>     --protocol mcp \
+>     --endpoint fastmcp-ip-reputation \
+>     --port 3000 \
+>     --transport streamable-http \
+>     --capability ip-reputation \
+>     --version 1.0.0 \
+>     --description "Threat-intel federation: IP reputation lookup" \
+>     --cap-uri    "${CAP_BASE_URL}/ip-reputation/v1.json" \
+>     --policy-uri "${CAP_BASE_URL}/ip-reputation/policy.json" \
+>     --ttl 30
+> ```
+>
+> Then flush CoreDNS so the translator picks up the new record:
+>
+> ```run
+> sudo docker restart coredns && sleep 3
+> ```
+
 ```run
 docker exec -i strands-agent python /app/agent.py <<< "Is 185.220.101.45 malicious?"
 ```
@@ -156,7 +186,7 @@ Port 3000  •  1 UNKNOWN
 ```
 
 The route IS attached to a backend (the proxy works — you just saw it
-in C3 above), but the UI shows `Name: Unknown Backend` and `Type:
+in Challenge 3 above), but the UI shows `Name: Unknown Backend` and `Type:
 Unknown` because of an upstream UI bug. To see the real data:
 
 ```run
@@ -170,7 +200,7 @@ correct; only the UI label is wrong.
 
 **Trace the chain**: `dig SVCB ...` → SVCB target field → translator
 polls it → translator pushes Backend via xDS → gateway materializes
-it → `config_dump` shows it → your invocation in C3 routed through it.
+it → `config_dump` shows it → your invocation in Challenge 3 routed through it.
 
 ### Policies
 
@@ -244,7 +274,7 @@ curl -s -X POST http://localhost:3000/ip-reputation/mcp \
     | sed -n 's/^data: //p' | python3 -m json.tool
 ```
 
-The second call returns the same verdict object the AI agent gets in C3
+The second call returns the same verdict object the AI agent gets in Challenge 3
 (`verdict: malicious, confidence: 0.95, sources: tor-exit-list, abuse.ch`).
 This proves the DNS publish → translator → xDS → gateway → backend
 round trip works without any AI involved.
@@ -277,7 +307,7 @@ Expected terminal output:
 ![Delete + 404 verification](https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/IETF/instruqt/assets/c3/delete-vanish.png)
 
 Refresh the **agentgateway UI Routes** page — Routes count 1 → 0.
-Re-publish the C2 command to restore them before moving on.
+Re-publish the Challenge 2 command to restore them before moving on.
 
 ## Bonus 1 — compare resolvers side by side
 

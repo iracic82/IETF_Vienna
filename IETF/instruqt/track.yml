@@ -25,6 +25,7 @@ tags:
 owner: infoblox
 developers:
 - iracic@infoblox.com
+- zmiszkiewicz@infoblox.com
 idle_timeout: 8400
 timelimit: 8400
 lab_config:
@@ -33,5 +34,5 @@ lab_config:
   feedback_tab_enabled: false
   loadingMessages: true
   hideStopButton: false
-checksum: "2855171360548388742"
+checksum: "8604506461822127819"
 enhanced_loading: false
