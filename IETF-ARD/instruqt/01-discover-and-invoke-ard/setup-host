@@ -217,21 +217,57 @@ export ARD_STUDENT_CATALOG="${CAP_BASE_URL}/students/${SANDBOX_SLUG}/.well-known
 ard_bootstrap() {
     set -uo pipefail   # NOTE: no -e inside the function
 
-    # 1. Per-student empty catalog stub on S3.
+    # 1. Per-student catalog on S3 — seeded with ALL 8 reference agents
+    #    from the global catalog so the student sees a populated
+    #    federation on first load. `ard-publish` in C2 adds/updates
+    #    entries idempotently (replace-by-identifier).
+    #    We do NOT just `aws s3 cp` global → student because we want
+    #    the host envelope to identify the student's sandbox, not the
+    #    global lab. So: fetch global, rewrite host, upload.
     local stub
     stub=$(mktemp /tmp/ard-stub-XXXX.json) || return 1
-    cat > "${stub}" <<JSON
-{
-  "specVersion": "1.0",
-  "host": {
-    "displayName": "Sandbox ${SANDBOX_SLUG} — student federation",
-    "identifier":  "${SANDBOX_SLUG}.${ZONE}",
-    "contact":     "mailto:${SANDBOX_SLUG}@students.${ZONE}",
-    "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  },
-  "entries": []
+    if python3 - "${stub}" <<PYBOOT 2>/dev/null
+import json, sys, urllib.request, datetime, os
+out = sys.argv[1]
+slug = "${SANDBOX_SLUG}"
+zone = "${ZONE}"
+url  = "${CAP_BASE_URL}/.well-known/ai-catalog.json"
+try:
+    with urllib.request.urlopen(url, timeout=10) as r:
+        g = json.loads(r.read())
+except Exception as exc:
+    # Global catalog unreachable — fall back to empty stub.
+    g = {"specVersion": "1.0", "entries": []}
+# Rebrand host as the student's sandbox + rewrite identifiers
+# so each entry's URN is anchored under the student's namespace.
+g["host"] = {
+    "displayName": f"Sandbox {slug} — student federation (seeded from global)",
+    "identifier":  f"{slug}.{zone}",
+    "contact":     f"mailto:{slug}@students.{zone}",
+    "publishedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
 }
+for e in g.get("entries", []):
+    ident = e.get("identifier", "")
+    # urn:air:lab.ccdesanity.com:agent:<name>  →  urn:air:<slug>.<zone>:agent:<name>
+    if ":agent:" in ident:
+        name = ident.rsplit(":", 1)[-1]
+        e["identifier"] = f"urn:air:{slug}.{zone}:agent:{name}"
+    tm = e.get("trustManifest")
+    if isinstance(tm, dict) and tm.get("identity", "").startswith("spiffe://"):
+        name = tm["identity"].rsplit("/", 1)[-1]
+        tm["identity"] = f"spiffe://{slug}.{zone}/agents/{name}"
+with open(out, "w") as f:
+    json.dump(g, f, indent=2)
+print(f"[setup] seeded per-student catalog with {len(g.get('entries', []))} entries")
+PYBOOT
+    then
+        true
+    else
+        # Fallback: write a minimal empty stub if Python errored.
+        cat > "${stub}" <<JSON
+{"specVersion":"1.0","host":{"displayName":"Sandbox ${SANDBOX_SLUG}","identifier":"${SANDBOX_SLUG}.${ZONE}"},"entries":[]}
 JSON
+    fi
     if aws s3 cp "${stub}" \
         "s3://ietf-vienna-cap-docs/students/${SANDBOX_SLUG}/.well-known/ai-catalog.json" \
         --content-type "application/json" \

@@ -256,13 +256,13 @@ matching subset ranked by relevance:
 curl -s -X POST "${ARD_API_BASE}/search" \
     -H 'content-type: application/json' \
     -d '{"query":{"text":"ip reputation"}}' \
-    | python3 -c '
+  | python3 <<'PY'
 import json, sys
 d = json.load(sys.stdin)
-print(f"matched {d[\"totalCount\"]} agents:")
-for r in d["results"][:4]:
-    print(f"  score={r[\"score\"]:5.1f}  {r[\"identifier\"]:55} — {r[\"displayName\"]}")
-'
+print(f"matched {d['totalCount']} agents:")
+for r in d['results'][:4]:
+    print(f"  score={r['score']:5.1f}  {r['identifier']:55} — {r['displayName']}")
+PY
 ```
 
 ARD's filter semantics let you constrain on any field path —
@@ -272,21 +272,54 @@ including nested `trustManifest.attestations.type`:
 curl -s -X POST "${ARD_API_BASE}/search" \
     -H 'content-type: application/json' \
     -d '{"query":{"filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' \
-    | python3 -c '
+  | python3 <<'PY'
 import json, sys
 d = json.load(sys.stdin)
-print(f"agents with a SOC2-Type2 attestation: {d[\"totalCount\"]}")
-for r in d["results"]:
-    print(f"  {r[\"displayName\"]}")
-'
+print(f"agents with a SOC2-Type2 attestation: {d['totalCount']}")
+for r in d['results']:
+    print(f"  {r['displayName']}")
+PY
 ```
 
-Your own per-student catalog is already provisioned at boot — empty
-until you `ard-publish` something in C2:
+Your own per-student catalog was seeded at boot with all 8 reference
+agents, rewritten under YOUR sandbox's URN namespace
+(`urn:air:${SANDBOX_SLUG}.${ZONE}:agent:<name>`) and SPIFFE identity
+(`spiffe://${SANDBOX_SLUG}.${ZONE}/agents/<name>`). C2 will
+`ard-publish` your own version of `ip-reputation` and the existing
+entry gets idempotently replaced — same shape, real publish flow.
 
 ```run
-curl -s "${ARD_STUDENT_CATALOG}" | python3 -m json.tool
+curl -s "${ARD_STUDENT_CATALOG}" \
+  | python3 <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+print(f"host: {d['host']['displayName']}")
+print(f"      identifier = {d['host']['identifier']}")
+print(f"      published  = {d['host'].get('publishedAt')}")
+print(f"\n{len(d['entries'])} agents in YOUR catalog:")
+for e in d['entries']:
+    print(f"  - {e['identifier']:60} ({e['displayName']})")
+PY
 ```
+
+> **If the curl above returns nothing**, the sandbox was started
+> before today's catalog-seeding patch landed. Re-seed once with this
+> one-liner (uses the global catalog as the template):
+>
+> ```run
+> python3 -c "
+> import json, urllib.request, datetime, os, sys
+> slug = os.environ['SANDBOX_SLUG']; zone = os.environ['ZONE']
+> g = json.loads(urllib.request.urlopen(os.environ['ARD_GLOBAL_CATALOG']).read())
+> g['host'] = {'displayName': f'Sandbox {slug}', 'identifier': f'{slug}.{zone}',
+>              'publishedAt': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')}
+> for e in g['entries']:
+>     if ':agent:' in e.get('identifier',''):
+>         e['identifier'] = f\"urn:air:{slug}.{zone}:agent:\" + e['identifier'].rsplit(':',1)[-1]
+> print(json.dumps(g, indent=2))
+> " | aws s3 cp - "s3://ietf-vienna-cap-docs/students/${SANDBOX_SLUG}/.well-known/ai-catalog.json" \
+>      --content-type application/json --cache-control "public, max-age=60"
+> ```
 
 In C2 you'll publish via BOTH transports (DNS-AID `publish` + ARD
 `ard-publish`) and see your agent appear in your own catalog

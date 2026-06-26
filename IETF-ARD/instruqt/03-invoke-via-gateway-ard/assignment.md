@@ -351,22 +351,28 @@ with a natural-language description of what it needs, and gets back
 the matching catalog entries.
 
 ```run
-echo "=== ARD federation catalog ($(curl -s ${ARD_GLOBAL_CATALOG} | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["entries"]))') agents) ==="
+echo "=== ARD federation catalog ==="
+curl -s "${ARD_GLOBAL_CATALOG}" | python3 <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+print(f"{len(d['entries'])} agents published by {d['host']['displayName']}")
+PY
+
 echo
-echo "=== POST /search 'I need to check if an IP is malicious' ==="
+echo "=== POST /search 'check if IP address is malicious' ==="
 curl -s -X POST "${ARD_API_BASE}/search" \
     -H 'content-type: application/json' \
     -d '{"query":{"text":"check if IP address is malicious"}}' \
-    | python3 -c '
+  | python3 <<'PY'
 import json, sys
 d = json.load(sys.stdin)
-print(f"matched: {d[\"totalCount\"]} agents (ranked)")
-for r in d["results"][:3]:
-    print(f"  score={r[\"score\"]:5.1f}  {r[\"displayName\"]:22}  {r[\"identifier\"]}")
-    print(f"            metadata.cap_uri    = {r[\"metadata\"][\"cap_uri\"]}")
-    print(f"            metadata.policy_uri = {r[\"metadata\"][\"policy_uri\"]}")
-    print(f"            trustManifest.identity = {r[\"trustManifest\"][\"identity\"]}")
-'
+print(f"matched: {d['totalCount']} agents (ranked)")
+for r in d['results'][:3]:
+    print(f"  score={r['score']:5.1f}  {r['displayName']:22}  {r['identifier']}")
+    print(f"            metadata.cap_uri        = {r['metadata']['cap_uri']}")
+    print(f"            metadata.policy_uri     = {r['metadata']['policy_uri']}")
+    print(f"            trustManifest.identity  = {r['trustManifest']['identity']}")
+PY
 ```
 
 The top result's `metadata.cap_uri` and `metadata.policy_uri` are
