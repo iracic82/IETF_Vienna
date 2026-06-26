@@ -207,11 +207,20 @@ export ARD_API_BASE="https://wjonk5wh2j.execute-api.us-east-1.amazonaws.com"
 export ARD_GLOBAL_CATALOG="${CAP_BASE_URL}/.well-known/ai-catalog.json"
 export ARD_STUDENT_CATALOG="${CAP_BASE_URL}/students/${SANDBOX_SLUG}/.well-known/ai-catalog.json"
 
-# Auto-create the student's empty ARD catalog so they have somewhere
-# to publish their own entries during C2. Idempotent — re-upload only
-# overwrites a fresh empty stub if one already exists with no entries.
-EMPTY_CATALOG_TMP=$(mktemp /tmp/ard-stub-XXXX.json)
-cat > "${EMPTY_CATALOG_TMP}" <<JSON
+# ARD per-student catalog bootstrap + ard-publish wrapper install.
+# WRAPPED IN A SOFT-FAIL BLOCK: this is best-effort enrichment for the
+# ARD path. If anything fails (S3 unreachable, sudoers write blocked,
+# etc.), we log + continue — the DNS-AID lab still works without ARD.
+# Without this guard, set -euo pipefail at the top of this script
+# would kill the entire sandbox boot at the first sub-command failure
+# and zero containers would ever come up.
+ard_bootstrap() {
+    set -uo pipefail   # NOTE: no -e inside the function
+
+    # 1. Per-student empty catalog stub on S3.
+    local stub
+    stub=$(mktemp /tmp/ard-stub-XXXX.json) || return 1
+    cat > "${stub}" <<JSON
 {
   "specVersion": "1.0",
   "host": {
@@ -223,56 +232,49 @@ cat > "${EMPTY_CATALOG_TMP}" <<JSON
   "entries": []
 }
 JSON
-aws s3 cp "${EMPTY_CATALOG_TMP}" \
-    "s3://ietf-vienna-cap-docs/students/${SANDBOX_SLUG}/.well-known/ai-catalog.json" \
-    --content-type "application/json" \
-    --cache-control "public, max-age=60" 2>&1 | tail -1
-rm -f "${EMPTY_CATALOG_TMP}"
-echo "[setup] ARD per-student catalog: ${ARD_STUDENT_CATALOG}"
+    if aws s3 cp "${stub}" \
+        "s3://ietf-vienna-cap-docs/students/${SANDBOX_SLUG}/.well-known/ai-catalog.json" \
+        --content-type "application/json" \
+        --cache-control "public, max-age=60" 2>/dev/null
+    then
+        echo "[setup] ARD per-student catalog uploaded: ${ARD_STUDENT_CATALOG}"
+    else
+        echo "[setup] ARD catalog upload soft-fail — continuing"
+    fi
+    rm -f "${stub}"
 
-# Install `ard-publish` wrapper — adds an ARD entry to the student's
-# catalog after they've done dns-aid publish. Same agent visible via
-# both discovery transports (DNS-AID + ARD).
-cat > /usr/local/bin/ard-publish <<'WRAPPER'
+    # 2. /usr/local/bin/ard-publish wrapper (student-runnable via sudo).
+    if cat > /usr/local/bin/ard-publish <<'WRAPPER'
 #!/bin/bash
-# Append an ARD CatalogEntry to the current sandbox's
-# per-student ai-catalog.json. Usage:
-#   ard-publish <agent-name>
-# The agent's v1.json must already exist at
-#   ${CAP_BASE_URL}/<agent-name>/v1.json
-# (the lab pre-publishes all 8 reference agents to that location).
-set -euo pipefail
+# Append an ARD CatalogEntry to the current sandbox's per-student
+# ai-catalog.json. Usage: ard-publish <agent-name>
+# The agent's v1.json must already exist at ${CAP_BASE_URL}/<agent-name>/v1.json
+set -uo pipefail
 source /opt/lab/lab.env
 
 AGENT="${1:?usage: ard-publish <agent-name>}"
 S3_KEY="students/${SANDBOX_SLUG}/.well-known/ai-catalog.json"
-
-# 1. Fetch existing catalog (or start fresh stub if 404).
 TMP=$(mktemp /tmp/ard-publish-XXXX.json)
+
 aws s3 cp "s3://ietf-vienna-cap-docs/${S3_KEY}" "${TMP}" 2>/dev/null || \
 cat > "${TMP}" <<JSON
 {"specVersion":"1.0","host":{"displayName":"Sandbox ${SANDBOX_SLUG}","identifier":"${SANDBOX_SLUG}.${ZONE}"},"entries":[]}
 JSON
 
-# 2. Build the new entry from the agent's v1.json cap doc.
 python3 - "${AGENT}" "${TMP}" <<'PY'
 import json, sys, urllib.request, os
-
 agent, catalog_path = sys.argv[1], sys.argv[2]
 cap_base = os.environ["CAP_BASE_URL"]
 slug = os.environ["SANDBOX_SLUG"]
 zone = os.environ["ZONE"]
-
 with urllib.request.urlopen(f"{cap_base}/{agent}/v1.json", timeout=10) as r:
     v1 = json.loads(r.read())
-
 entry = {
     "identifier":  f"urn:air:{slug}.{zone}:agent:{agent}",
     "displayName": " ".join(w.capitalize() for w in agent.replace("_","-").split("-")),
     "type":        "application/mcp-server+json",
     "url":         v1.get("mcp_server_card", f"{cap_base}/{agent}/mcp-server-card.json"),
-    "description": (v1.get("tools",[{}])[0].get("description") if v1.get("tools") else None)
-                   or f"{agent} published by sandbox {slug}",
+    "description": (v1.get("tools",[{}])[0].get("description") if v1.get("tools") else None) or f"{agent} published by sandbox {slug}",
     "tags":        v1.get("capabilities", []),
     "metadata": {
         "cap_uri":    f"{cap_base}/{agent}/v1.json",
@@ -288,10 +290,8 @@ entry = {
         "claimedSigner": (v1.get("trust") or {}).get("signer_hint"),
     },
 }
-
 with open(catalog_path) as f:
     cat = json.load(f)
-# Replace any prior entry with the same identifier (idempotent).
 cat["entries"] = [e for e in cat.get("entries", []) if e.get("identifier") != entry["identifier"]]
 cat["entries"].append(entry)
 with open(catalog_path, "w") as f:
@@ -299,23 +299,32 @@ with open(catalog_path, "w") as f:
 print(f"  ✓ appended {entry['identifier']} (catalog now has {len(cat['entries'])} entries)")
 PY
 
-# 3. Upload the updated catalog.
 aws s3 cp "${TMP}" "s3://ietf-vienna-cap-docs/${S3_KEY}" \
     --content-type application/json --cache-control "public, max-age=60" 2>&1 | tail -1
 rm -f "${TMP}"
 echo "  ✓ live at ${ARD_STUDENT_CATALOG}"
 WRAPPER
-chmod 755 /usr/local/bin/ard-publish
-echo "[setup] installed ard-publish wrapper"
+    then
+        chmod 755 /usr/local/bin/ard-publish 2>/dev/null || true
+        echo "[setup] ard-publish wrapper installed"
+    else
+        echo "[setup] ard-publish wrapper install soft-fail — continuing"
+    fi
 
-# Same sudoers pattern as dns-aid — student can invoke without password.
-if ! grep -q "/usr/local/bin/ard-publish" /etc/sudoers.d/90-ard 2>/dev/null; then
-    cat > /etc/sudoers.d/90-ard <<'SUDO'
+    # 3. sudoers grant for ard-publish.
+    if ! grep -q "/usr/local/bin/ard-publish" /etc/sudoers.d/90-ard 2>/dev/null; then
+        cat > /etc/sudoers.d/90-ard <<'SUDO' 2>/dev/null && chmod 440 /etc/sudoers.d/90-ard 2>/dev/null
 student ALL=(root) NOPASSWD: /usr/local/bin/ard-publish *
 student ALL=(root) NOPASSWD: /usr/local/bin/ard-publish
 SUDO
-    chmod 440 /etc/sudoers.d/90-ard
-fi
+    fi
+
+    return 0
+}
+
+# Invoke with || true so any failure (including the function exiting
+# non-zero) is contained. The DNS-AID lab continues normally.
+ard_bootstrap || echo "[setup] ARD bootstrap soft-failed — DNS-AID lab still functional"
 
 # Convenience symlink so the Editor tab (path: /root) shows the lab code.
 ln -sfn /opt/lab/IETF_Vienna /root/lab 2>/dev/null || true

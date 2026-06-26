@@ -332,4 +332,116 @@ export const IETF_LAYERS_OVERVIEW: Flow = {
 //   2. policy denial via POLICY_OVERRIDE (IETF_DENIED_FLOW)
 //   3. 4-layer enforcement model overview (IETF_LAYERS_OVERVIEW)
 
-export const ALL_FLOWS: Flow[] = [IETF_FLOW, IETF_DENIED_FLOW, IETF_LAYERS_OVERVIEW];
+// ──────────────────────────────────────────────────────────────────────
+// IETF ARD flow: alternative discovery via the HTTPS ai-catalog.json
+// path defined by https://agenticresourcediscovery.org/spec/
+//
+// Same agent backend, different discovery transport. The Lambda
+// (ard-search) fetches the global ai-catalog.json from S3, applies a
+// text + filter query (ARD §7.1), returns matching entries. The
+// agent picks one and proceeds with the SAME invocation path
+// (sdk-guard → gateway → fastmcp) as the DNS-AID flow — pedagogical
+// point: discovery is a transport choice, runtime is shared.
+// ──────────────────────────────────────────────────────────────────────
+
+const ARD_NODES: Node[] = [
+  ...IETF_NODES,
+  { id: "ard-search",  position: { x: 1040, y: 180 }, data: { label: "ARD search Lambda\nPOST /search (ARD §7.1)" }, type: "explorer" },
+  { id: "ard-catalog", position: { x: 1040, y:   0 }, data: { label: "ARD catalog\n/.well-known/ai-catalog.json" }, type: "explorer" },
+];
+
+const ARD_EDGES: Edge[] = [
+  // Discovery via DNS-AID is shown faded — reuse the existing labels
+  // so students see the contrast.
+  ...IETF_EDGES,
+  // NEW edges for the ARD discovery path:
+  { id: "ard1", source: "agent",       target: "ard-search",  animated: true, label: "ARD search query" },
+  { id: "ard2", source: "ard-search",  target: "ard-catalog", animated: true, label: "GET catalog" },
+  { id: "ard3", source: "ard-search",  target: "cap-s3",      animated: true, label: "cap_uri (from catalog)" },
+];
+
+export const IETF_ARD_FLOW: Flow = {
+  id: "ietf-ard-discover-http",
+  title: "Discover via ARD (HTTPS catalog)",
+  category: "discovery",
+  nodes: ARD_NODES,
+  edges: ARD_EDGES,
+  steps: [
+    {
+      id: "1", label: "User asks", nodeId: "agent", kind: "tool_call",
+      detail: {
+        title: "Step 1 — Analyst asks the assistant (ARD discovery path)",
+        rightPaneTabs: ["request"],
+        sampleRequest: 'analyst> Is 185.220.101.45 malicious?\n\n# Same question as the DNS-AID flow.\n# This time the agent will discover via ARD instead of SVCB.',
+      },
+    },
+    {
+      id: "2", label: "ARD search query", nodeId: "ard-search", edgeFrom: "ard1", kind: "tool_call",
+      detail: {
+        title: "Step 2 — Agent POSTs natural-language search to the ARD Lambda",
+        rightPaneTabs: ["request"],
+        sampleRequest: 'POST https://wjonk5wh2j.execute-api.us-east-1.amazonaws.com/search\nContent-Type: application/json\n\n{\n  "query": {\n    "text":   "check if IP address is malicious",\n    "filter": {"type": ["application/mcp-server+json"]}\n  }\n}\n\n# ARD §7.1 query envelope:\n#   - text:   natural-language semantic search\n#   - filter: structured field constraints (dot-path resolution)',
+      },
+    },
+    {
+      id: "3", label: "Fetch global catalog", nodeId: "ard-catalog", edgeFrom: "ard2", kind: "cap_fetch",
+      detail: {
+        title: "Step 3 — Lambda reads global ai-catalog.json from S3",
+        rightPaneTabs: ["request", "response"],
+        sampleRequest: 'GET s3://ietf-vienna-cap-docs/.well-known/ai-catalog.json\n\n# Lambda caches in-process; first call after deploy takes ~30ms,\n# subsequent <5ms. The catalog itself is 21KB / 8 entries.',
+        sampleResponse: '{\n  "specVersion": "1.0",\n  "host": {\n    "displayName": "CCDeSanity Threat-Intel Federation (IETF Vienna ARD lab)",\n    "identifier": "lab.ccdesanity.com"\n  },\n  "entries": [\n    { "identifier": "urn:air:lab.ccdesanity.com:agent:asn-info",     ... },\n    { "identifier": "urn:air:lab.ccdesanity.com:agent:cve-lookup",   ... },\n    { "identifier": "urn:air:lab.ccdesanity.com:agent:domain-age",   ... },\n    { "identifier": "urn:air:lab.ccdesanity.com:agent:file-hash",    ... },\n    { "identifier": "urn:air:lab.ccdesanity.com:agent:ip-reputation",... },\n    { "identifier": "urn:air:lab.ccdesanity.com:agent:passive-dns",  ... },\n    { "identifier": "urn:air:lab.ccdesanity.com:agent:threat-feed",  ... },\n    { "identifier": "urn:air:lab.ccdesanity.com:agent:url-scanner",  ... }\n  ]\n}',
+      },
+    },
+    {
+      id: "4", label: "Score + filter + rank", nodeId: "ard-search", kind: "synthesis",
+      detail: {
+        title: "Step 4 — Lambda ranks entries by token overlap with the query",
+        rightPaneTabs: ["response"],
+        sampleResponse: '{\n  "totalCount": 3,\n  "results": [\n    {\n      "score": 75.0,\n      "identifier": "urn:air:lab.ccdesanity.com:agent:ip-reputation",\n      "displayName": "IP Reputation",\n      "type": "application/mcp-server+json",\n      "tags": ["ip-reputation","threat-intel","ipv4","reputation"],\n      "metadata": {\n        "cap_uri":   "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json",\n        "policy_uri":"https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json",\n        "tools":     [{"name":"lookup_ip", ...}]\n      },\n      "trustManifest": {\n        "identity":       "spiffe://lab.ccdesanity.com/agents/ip-reputation",\n        "attestations":   [{"type":"SOC2-Type2", ...}]\n      }\n    },\n    {"score": 50.0, "identifier": "...threat-feed",   ...},\n    {"score": 25.0, "identifier": "...passive-dns",   ...}\n  ]\n}',
+      },
+    },
+    {
+      id: "5", label: "Fetch cap doc", nodeId: "cap-s3", edgeFrom: "ard3", kind: "cap_fetch",
+      detail: {
+        title: "Step 5 — Agent fetches the chosen agent's cap doc (same as DNS-AID path)",
+        rightPaneTabs: ["request"],
+        sampleRequest: 'GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json\n\n# Note: the cap_uri came from the ARD entry, NOT from a DNS SVCB\n# SvcParam. Same downstream URL, different discovery transport.\n#\n# Pedagogical point: ARD vs DNS-AID is a DISCOVERY substrate choice.\n# Everything downstream of cap_uri (the cap doc, the policy doc, the\n# MCP server card, the actual backend) is IDENTICAL.',
+      },
+    },
+    {
+      id: "6", label: "SDK guard (Layer 1)", nodeId: "sdk-guard", edgeFrom: "e9", kind: "jws_verify",
+      detail: {
+        title: "Step 6 — Same SDK caller-side guard as the DNS-AID path",
+        rightPaneTabs: ["request", "response"],
+        sampleRequest: 'await check_target_policy(\n    policy_uri="…/policy.json",  # came from ARD entry metadata.policy_uri\n    tool_name="lookup_ip",\n    method="tools/call",\n)',
+        sampleResponse: 'PolicyResult(allowed=True)\n[sdk-guard] tool=\'lookup_ip\' → ALLOWED by SDK caller guard\n\n# Layer 1 enforcement runs identically regardless of discovery\n# transport — it only cares about policy_uri.',
+      },
+    },
+    {
+      id: "7", label: "Invoke via gateway", nodeId: "gateway", edgeFrom: "e7", kind: "mcp_call",
+      detail: {
+        title: "Step 7 — Invoke through agentgateway (same backend)",
+        rightPaneTabs: ["request"],
+        sampleRequest: 'POST http://agentgateway:3000/ip-reputation/mcp\n{"method":"tools/call","params":{"name":"lookup_ip","arguments":{"ip":"185.220.101.45"}}}',
+      },
+    },
+    {
+      id: "8", label: "Verdict", nodeId: "fastmcp", edgeFrom: "e8", kind: "mcp_response",
+      detail: {
+        title: "Step 8 — Same federation backend returns the verdict",
+        rightPaneTabs: ["response"],
+        sampleResponse: '{"verdict": "malicious", "confidence": 0.95, "sources": ["tor-exit-list", "abuse.ch"]}',
+      },
+    },
+    {
+      id: "9", label: "Synthesis", nodeId: "agent", kind: "synthesis",
+      detail: {
+        title: "Step 9 — Audit chain notes ARD as the discovery transport",
+        rightPaneTabs: ["response"],
+        sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Trust chain (audit):**\n       - Discovery via: ARD search Lambda (POST /search)\n       - ARD entry:     urn:air:lab.ccdesanity.com:agent:ip-reputation\n       - Cap doc:       …/ip-reputation/v1.json  (same URL as DNS-AID)\n       - Policy:        …/ip-reputation/policy.json  (same)\n       - SDK guard:     ALLOWED (Layer 1)\n       - Invoked via:   http://agentgateway:3000/ip-reputation/mcp  (same)\n\n# Same federation, different discovery transport.\n# dns-aid-core 0.26+ will read ARD catalogs natively — until then,\n# this lab demonstrates the transport via direct curl in C2/C3.',
+      },
+    },
+  ],
+};
+
+export const ALL_FLOWS: Flow[] = [IETF_FLOW, IETF_DENIED_FLOW, IETF_ARD_FLOW, IETF_LAYERS_OVERVIEW];
