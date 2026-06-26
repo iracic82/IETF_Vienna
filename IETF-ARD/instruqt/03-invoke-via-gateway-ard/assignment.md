@@ -1,6 +1,6 @@
 ---
 slug: invoke-via-gateway-ard
-id: 4hyr26pt6hif
+id: f8yug5dffemf
 type: challenge
 title: 3. Invoke — same agent, two discovery paths, one trust chain
 teaser: Watch the AI agent discover via DNS, fetch the cap doc from S3, verify DNSSEC,
@@ -17,16 +17,16 @@ notes:
     Everything you see in the terminal happens because of DNS records —
     not because anything was hardcoded in the agent.
 tabs:
-- id: fbywwj7ssegf
+- id: teyxpndvbmgj
   title: Terminal
   type: terminal
   hostname: host
-- id: 9vxshbiwikwb
+- id: c1fnu7srs8yf
   title: DNS-AID Explorer
   type: service
   hostname: host
   port: 8080
-- id: 9zqdb9z5913w
+- id: vyshcyocngbv
   title: agentgateway UI
   type: service
   hostname: host

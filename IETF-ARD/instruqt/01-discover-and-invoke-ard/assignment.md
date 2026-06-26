@@ -1,6 +1,6 @@
 ---
 slug: discover-and-invoke-ard
-id: agbozuc0q2yp
+id: ypkqsbljutze
 type: challenge
 title: 1. Tour the lab — DNS-AID + ARD as parallel discovery planes
 teaser: Inspect a federation runtime that has zero routes until DNS publishes one.
@@ -15,16 +15,16 @@ notes:
     This first challenge is a tour. No publishing yet. Read the running
     stack, understand each piece, then move to the publish challenge.
 tabs:
-- id: 9lly3gz9gj3g
+- id: 6h3mv9qkwjq2
   title: Terminal
   type: terminal
   hostname: host
-- id: i84mm6ay6vch
+- id: nwt3ih7elzzu
   title: DNS-AID Explorer
   type: service
   hostname: host
   port: 8080
-- id: ytgtoy76e1zr
+- id: fhroti943ngv
   title: agentgateway UI
   type: service
   hostname: host

@@ -1,5 +1,5 @@
 slug: dns-aid-ard
-id: np8f4lcds10v
+id: mrdfhoztoupz
 title: 'DNS-AID + ARD: Federated AI Agent Discovery'
 teaser: |
   Watch an AI assistant discover, verify, and invoke a remote MCP capability using DNS-AID + agentgateway.
@@ -34,5 +34,5 @@ lab_config:
   feedback_tab_enabled: false
   loadingMessages: true
   hideStopButton: false
-checksum: "8604506461822127819"
+checksum: "2566762117407131357"
 enhanced_loading: false

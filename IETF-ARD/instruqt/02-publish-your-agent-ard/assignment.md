@@ -1,6 +1,6 @@
 ---
 slug: publish-your-agent-ard
-id: tahdo9uzqxhx
+id: m6mcxafj9ogi
 type: challenge
 title: 2. Publish — DNS-AID SVCB and ARD ai-catalog side by side
 teaser: Publish one DNS-AID record. Watch the agentgateway dynamically pick up the
@@ -14,20 +14,20 @@ notes:
     point of this lab — DNS as the runtime control plane for AI agent
     federations.
 tabs:
-- id: zjkmftlir3sd
+- id: ggy9to2m6ujv
   title: Terminal 1
   type: terminal
   hostname: host
-- id: 83bv3wvcymum
+- id: lg17gm2xiiko
   title: Terminal 2
   type: terminal
   hostname: host
-- id: 6jppif8o3rbw
+- id: 49q49cpvy7ui
   title: DNS-AID Explorer
   type: service
   hostname: host
   port: 8080
-- id: w3jllys5cg6d
+- id: yf0ssty2s2iy
   title: agentgateway UI
   type: service
   hostname: host
