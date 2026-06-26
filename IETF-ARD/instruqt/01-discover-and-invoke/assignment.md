@@ -218,10 +218,87 @@ You'll see it polling DNS every 5 seconds. Right now it sees nothing.
 After challenge 2 it will see the record you published and push a
 route to the gateway in real time.
 
+## The other discovery plane — ARD (HTTPS catalog)
+
+DNS-AID isn't the only standardised AI-agent discovery story. The
+[**Agentic Resource Discovery (ARD)**](https://agenticresourcediscovery.org/spec/)
+proposal — `v0.9 draft, May 2026` — defines a complementary HTTPS
+mechanism: an `ai-catalog.json` manifest at a well-known location plus
+a mandatory `POST /search` REST API for federation registries. Same
+goal as DNS-AID (find agents you didn't ship with), different
+transport.
+
+This lab pre-publishes the SAME 8 reference agents through BOTH
+discovery planes:
+
+| Plane | Where | What you see |
+|---|---|---|
+| **DNS-AID** (SVCB) | `_<agent>._<proto>._agents.<zone>` records in Route 53 | One record per agent. SVCB target + alpn + port + custom SvcParams (cap_uri, policy_uri). Used in C2/C3 as the primary path. |
+| **ARD** (HTTPS) | `${CAP_BASE_URL}/.well-known/ai-catalog.json` + `${ARD_API_BASE}/search` Lambda | One JSON document listing ALL 8 agents with rich trustManifest, attestations, schemaOrg vocabulary. Searchable via `POST /search` query model (§7.1 of the spec). |
+
+Curl the global ARD catalog so you can see what an enterprise's
+federation manifest actually looks like — 8 agents, full metadata:
+
+```run
+source /opt/lab/lab.env
+curl -s "${ARD_GLOBAL_CATALOG}" | python3 -m json.tool | head -60
+```
+
+You should see `specVersion`, `host` (the publisher envelope),
+`entries[]` (each with `identifier` URN, `displayName`, `type`,
+`url`, `tags`, `metadata.*`, `trustManifest` with SPIFFE identity +
+attestations), and a `collections[]` pointer at per-student catalogs.
+
+Now hit the search Lambda — natural-language query, returns the
+matching subset ranked by relevance:
+
+```run
+curl -s -X POST "${ARD_API_BASE}/search" \
+    -H 'content-type: application/json' \
+    -d '{"query":{"text":"ip reputation"}}' \
+    | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(f"matched {d[\"totalCount\"]} agents:")
+for r in d["results"][:4]:
+    print(f"  score={r[\"score\"]:5.1f}  {r[\"identifier\"]:55} — {r[\"displayName\"]}")
+'
+```
+
+ARD's filter semantics let you constrain on any field path —
+including nested `trustManifest.attestations.type`:
+
+```run
+curl -s -X POST "${ARD_API_BASE}/search" \
+    -H 'content-type: application/json' \
+    -d '{"query":{"filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' \
+    | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(f"agents with a SOC2-Type2 attestation: {d[\"totalCount\"]}")
+for r in d["results"]:
+    print(f"  {r[\"displayName\"]}")
+'
+```
+
+Your own per-student catalog is already provisioned at boot — empty
+until you `ard-publish` something in C2:
+
+```run
+curl -s "${ARD_STUDENT_CATALOG}" | python3 -m json.tool
+```
+
+In C2 you'll publish via BOTH transports (DNS-AID `publish` + ARD
+`ard-publish`) and see your agent appear in your own catalog
+alongside the 8 reference agents in the global one. In C3 the agent
+discovers via DNS-AID by default; an optional bonus shows the same
+discovery via ARD.
+
 ## When you're ready
 
 Move to challenge 2 — publish your federation capability and watch the
-gateway materialize the route within seconds.
+gateway materialize the route within seconds. You'll also append an
+ARD entry to your per-student catalog.
 
 ## Success
 

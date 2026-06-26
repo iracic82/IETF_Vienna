@@ -289,6 +289,54 @@ before letting the agent invoke `lookup_ip`.
 > the previous step to skip that window — production federations
 > instead design publish cadence around it.
 
+## Also publish via ARD — same agent, second discovery transport
+
+You've published `ip-reputation` via DNS-AID. Now publish the SAME
+agent into your ARD (Agentic Resource Discovery) per-student
+catalog. The `ard-publish` wrapper fetches the agent's `v1.json` cap
+doc, translates it into a spec-compliant ARD `CatalogEntry` (per
+[ARD §4](https://agenticresourcediscovery.org/spec/)), and appends
+it to `${ARD_STUDENT_CATALOG}`:
+
+```run
+ard-publish ip-reputation
+```
+
+Now your per-student ARD catalog has one entry:
+
+```run
+curl -s "${ARD_STUDENT_CATALOG}" | python3 -m json.tool
+```
+
+And the ARD search Lambda can find it via natural-language query —
+because catalog reads from S3 on every request, the new entry is
+visible immediately:
+
+```run
+curl -s -X POST "${ARD_API_BASE}/students/${SANDBOX_SLUG}/search" \
+    -H 'content-type: application/json' \
+    -d '{"query":{"text":"ip reputation lookup"}}' \
+    | python3 -m json.tool
+```
+
+> **The same `ip-reputation` agent is now discoverable via both planes**:
+> - DNS-AID: `dig SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE}` returns
+>   the SVCB record with cap_uri/policy_uri SvcParams.
+> - ARD: `POST ${ARD_API_BASE}/students/${SANDBOX_SLUG}/search` returns
+>   the catalog entry with trustManifest and metadata.
+>
+> Both discovery transports resolve to the same `fastmcp-ip-reputation`
+> backend. Pedagogical point: **discovery is a transport choice, not
+> a runtime property of the agent itself**.
+
+(Optional) Publish a second agent so your catalog has multiple entries:
+
+```run
+ard-publish url-scanner
+ard-publish asn-info
+curl -s "${ARD_STUDENT_CATALOG}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(f"{len(d[\"entries\"])} agents in your catalog:"); [print(f"  {e[\"identifier\"]}") for e in d["entries"]]'
+```
+
 ## Verify the xDS layer caught up + warm up the gateway
 
 Within ~5–10 seconds of publishing (now that CoreDNS is flushed), the

@@ -193,6 +193,130 @@ export ROUTE53_ZONE_ID="${HOSTED_ZONE_ID}"
 # no per-sandbox SSRF/TLS issues.
 export CAP_BASE_URL="https://ietf-vienna-cap-docs.s3.amazonaws.com"
 
+# ARD (Agentic Resource Discovery — https://agenticresourcediscovery.org)
+# search API. Lambda + APIGW in us-east-1, shared by all student
+# sandboxes for this lab. Endpoint shape:
+#   GET  ${ARD_API_BASE}/                          — banner
+#   GET  ${ARD_API_BASE}/catalog                   — global ai-catalog.json
+#   POST ${ARD_API_BASE}/search                    — global ARD §7.1 search
+#   GET  ${ARD_API_BASE}/students/${SLUG}/catalog  — per-student catalog
+#   POST ${ARD_API_BASE}/students/${SLUG}/search   — per-student search
+# Global catalog lives at:
+#   ${CAP_BASE_URL}/.well-known/ai-catalog.json
+export ARD_API_BASE="https://wjonk5wh2j.execute-api.us-east-1.amazonaws.com"
+export ARD_GLOBAL_CATALOG="${CAP_BASE_URL}/.well-known/ai-catalog.json"
+export ARD_STUDENT_CATALOG="${CAP_BASE_URL}/students/${SANDBOX_SLUG}/.well-known/ai-catalog.json"
+
+# Auto-create the student's empty ARD catalog so they have somewhere
+# to publish their own entries during C2. Idempotent — re-upload only
+# overwrites a fresh empty stub if one already exists with no entries.
+EMPTY_CATALOG_TMP=$(mktemp /tmp/ard-stub-XXXX.json)
+cat > "${EMPTY_CATALOG_TMP}" <<JSON
+{
+  "specVersion": "1.0",
+  "host": {
+    "displayName": "Sandbox ${SANDBOX_SLUG} — student federation",
+    "identifier":  "${SANDBOX_SLUG}.${ZONE}",
+    "contact":     "mailto:${SANDBOX_SLUG}@students.${ZONE}",
+    "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  },
+  "entries": []
+}
+JSON
+aws s3 cp "${EMPTY_CATALOG_TMP}" \
+    "s3://ietf-vienna-cap-docs/students/${SANDBOX_SLUG}/.well-known/ai-catalog.json" \
+    --content-type "application/json" \
+    --cache-control "public, max-age=60" 2>&1 | tail -1
+rm -f "${EMPTY_CATALOG_TMP}"
+echo "[setup] ARD per-student catalog: ${ARD_STUDENT_CATALOG}"
+
+# Install `ard-publish` wrapper — adds an ARD entry to the student's
+# catalog after they've done dns-aid publish. Same agent visible via
+# both discovery transports (DNS-AID + ARD).
+cat > /usr/local/bin/ard-publish <<'WRAPPER'
+#!/bin/bash
+# Append an ARD CatalogEntry to the current sandbox's
+# per-student ai-catalog.json. Usage:
+#   ard-publish <agent-name>
+# The agent's v1.json must already exist at
+#   ${CAP_BASE_URL}/<agent-name>/v1.json
+# (the lab pre-publishes all 8 reference agents to that location).
+set -euo pipefail
+source /opt/lab/lab.env
+
+AGENT="${1:?usage: ard-publish <agent-name>}"
+S3_KEY="students/${SANDBOX_SLUG}/.well-known/ai-catalog.json"
+
+# 1. Fetch existing catalog (or start fresh stub if 404).
+TMP=$(mktemp /tmp/ard-publish-XXXX.json)
+aws s3 cp "s3://ietf-vienna-cap-docs/${S3_KEY}" "${TMP}" 2>/dev/null || \
+cat > "${TMP}" <<JSON
+{"specVersion":"1.0","host":{"displayName":"Sandbox ${SANDBOX_SLUG}","identifier":"${SANDBOX_SLUG}.${ZONE}"},"entries":[]}
+JSON
+
+# 2. Build the new entry from the agent's v1.json cap doc.
+python3 - "${AGENT}" "${TMP}" <<'PY'
+import json, sys, urllib.request, os
+
+agent, catalog_path = sys.argv[1], sys.argv[2]
+cap_base = os.environ["CAP_BASE_URL"]
+slug = os.environ["SANDBOX_SLUG"]
+zone = os.environ["ZONE"]
+
+with urllib.request.urlopen(f"{cap_base}/{agent}/v1.json", timeout=10) as r:
+    v1 = json.loads(r.read())
+
+entry = {
+    "identifier":  f"urn:air:{slug}.{zone}:agent:{agent}",
+    "displayName": " ".join(w.capitalize() for w in agent.replace("_","-").split("-")),
+    "type":        "application/mcp-server+json",
+    "url":         v1.get("mcp_server_card", f"{cap_base}/{agent}/mcp-server-card.json"),
+    "description": (v1.get("tools",[{}])[0].get("description") if v1.get("tools") else None)
+                   or f"{agent} published by sandbox {slug}",
+    "tags":        v1.get("capabilities", []),
+    "metadata": {
+        "cap_uri":    f"{cap_base}/{agent}/v1.json",
+        "policy_uri":  v1.get("policy_uri"),
+        "version":     v1.get("version"),
+        "protocol":    v1.get("protocol"),
+        "transport":   v1.get("transport"),
+        "tools": [{"name": t["name"], "description": t.get("description","")} for t in v1.get("tools",[])],
+    },
+    "trustManifest": {
+        "identity":     f"spiffe://{slug}.{zone}/agents/{agent}",
+        "identityType": "spiffe",
+        "claimedSigner": (v1.get("trust") or {}).get("signer_hint"),
+    },
+}
+
+with open(catalog_path) as f:
+    cat = json.load(f)
+# Replace any prior entry with the same identifier (idempotent).
+cat["entries"] = [e for e in cat.get("entries", []) if e.get("identifier") != entry["identifier"]]
+cat["entries"].append(entry)
+with open(catalog_path, "w") as f:
+    json.dump(cat, f, indent=2)
+print(f"  ✓ appended {entry['identifier']} (catalog now has {len(cat['entries'])} entries)")
+PY
+
+# 3. Upload the updated catalog.
+aws s3 cp "${TMP}" "s3://ietf-vienna-cap-docs/${S3_KEY}" \
+    --content-type application/json --cache-control "public, max-age=60" 2>&1 | tail -1
+rm -f "${TMP}"
+echo "  ✓ live at ${ARD_STUDENT_CATALOG}"
+WRAPPER
+chmod 755 /usr/local/bin/ard-publish
+echo "[setup] installed ard-publish wrapper"
+
+# Same sudoers pattern as dns-aid — student can invoke without password.
+if ! grep -q "/usr/local/bin/ard-publish" /etc/sudoers.d/90-ard 2>/dev/null; then
+    cat > /etc/sudoers.d/90-ard <<'SUDO'
+student ALL=(root) NOPASSWD: /usr/local/bin/ard-publish *
+student ALL=(root) NOPASSWD: /usr/local/bin/ard-publish
+SUDO
+    chmod 440 /etc/sudoers.d/90-ard
+fi
+
 # Convenience symlink so the Editor tab (path: /root) shows the lab code.
 ln -sfn /opt/lab/IETF_Vienna /root/lab 2>/dev/null || true
 
@@ -232,6 +356,9 @@ export VERTEX_LOCATION="${VERTEX_LOCATION}"
 export DNS_AID_BACKEND="${DNS_AID_BACKEND}"
 export ROUTE53_ZONE_ID="${ROUTE53_ZONE_ID}"
 export CAP_BASE_URL="${CAP_BASE_URL}"
+export ARD_API_BASE="${ARD_API_BASE}"
+export ARD_GLOBAL_CATALOG="${ARD_GLOBAL_CATALOG}"
+export ARD_STUDENT_CATALOG="${ARD_STUDENT_CATALOG}"
 export SIGN_KEY="${SIGN_KEY}"
 export SIGN_KID="${SIGN_KID}"
 export PATH="${HOME}/.local/bin:/usr/local/bin:\$PATH"

@@ -342,6 +342,56 @@ The lookup DB doesn't know about that IP. Watch the agent honestly
 report `verdict: unknown` (not "probably safe" or "I'll guess from
 training"). Honest reporting is part of the federation contract.
 
+## Bonus 2b — discover via ARD instead of DNS-AID
+
+You've seen the agent discover via DNS-AID (`discover_agents_via_dns`).
+Now show the ARD path explicitly — the agent doesn't know in advance
+which agents the enterprise has, so it queries the ARD search Lambda
+with a natural-language description of what it needs, and gets back
+the matching catalog entries.
+
+```run
+echo "=== ARD federation catalog ($(curl -s ${ARD_GLOBAL_CATALOG} | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["entries"]))') agents) ==="
+echo
+echo "=== POST /search 'I need to check if an IP is malicious' ==="
+curl -s -X POST "${ARD_API_BASE}/search" \
+    -H 'content-type: application/json' \
+    -d '{"query":{"text":"check if IP address is malicious"}}' \
+    | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(f"matched: {d[\"totalCount\"]} agents (ranked)")
+for r in d["results"][:3]:
+    print(f"  score={r[\"score\"]:5.1f}  {r[\"displayName\"]:22}  {r[\"identifier\"]}")
+    print(f"            metadata.cap_uri    = {r[\"metadata\"][\"cap_uri\"]}")
+    print(f"            metadata.policy_uri = {r[\"metadata\"][\"policy_uri\"]}")
+    print(f"            trustManifest.identity = {r[\"trustManifest\"][\"identity\"]}")
+'
+```
+
+The top result's `metadata.cap_uri` and `metadata.policy_uri` are
+**the same URLs** the DNS-AID SVCB record's SvcParams (cap, policy)
+point at. Different discovery transport → same downstream artifacts
+→ same backend invocation. ARD is a **discovery substrate choice**,
+not a runtime-architecture choice.
+
+> **Why this matters for federation interop**: an enterprise can run
+> BOTH planes in parallel. DNS-aware clients (mobile, CLI tools,
+> network appliances) use the SVCB path. Web-and-LLM-native clients
+> (catalogs in dashboards, agent search) use the ARD HTTPS path. The
+> agent itself doesn't care — once it has the cap_uri it goes the
+> same place. dns-aid-core 0.26+ will parse the ARD format too,
+> exposing both via the same `discover_agents_via_dns` MCP tool.
+
+Filter your per-student catalog by what you've published:
+
+```run
+curl -s -X POST "${ARD_API_BASE}/students/${SANDBOX_SLUG}/search" \
+    -H 'content-type: application/json' \
+    -d '{"query":{"filter":{"tags":["ip-reputation"]}}}' \
+    | python3 -m json.tool
+```
+
 ## Bonus 3 (optional) — watch the SDK caller-side guard deny a call
 
 > Skip this section if you're short on time. It shows what the
