@@ -220,34 +220,54 @@ route to the gateway in real time.
 
 ## The other discovery plane — ARD (HTTPS catalog)
 
-DNS-AID isn't the only standardised AI-agent discovery story. The
-[**Agentic Resource Discovery (ARD)**](https://agenticresourcediscovery.org/spec/)
-proposal — `v0.9 draft, May 2026` — defines a complementary HTTPS
-mechanism: an `ai-catalog.json` manifest at a well-known location plus
-a mandatory `POST /search` REST API for federation registries. Same
-goal as DNS-AID (find agents you didn't ship with), different
-transport.
+DNS-AID isn't the only standardised AI-agent discovery story. Two
+related specs define a complementary HTTPS path:
+
+- [**AI Catalog standard**](https://ai-catalog.io/) — the canonical
+  JSON envelope (`specVersion`, `host`, `entries[]`, with a normative
+  CDDL schema). Defines `application/ai-catalog+json` and known
+  artifact types (`application/mcp-server-card+json`,
+  `application/a2a-agent-card+json`, …).
+- [**Agentic Resource Discovery (ARD)**](https://agenticresourcediscovery.org/spec/)
+  — adds federation: discovery mechanisms (well-known URI, DNS SVCB,
+  robots.txt, `<link>`), the `urn:air:` URN format, and a mandatory
+  `POST /search` REST API for federation registries.
 
 This lab pre-publishes the SAME 8 reference agents through BOTH
 discovery planes:
 
 | Plane | Where | What you see |
 |---|---|---|
-| **DNS-AID** (SVCB) | `_<agent>._<proto>._agents.<zone>` records in Route 53 | One record per agent. SVCB target + alpn + port + custom SvcParams (cap_uri, policy_uri). Used in C2/C3 as the primary path. |
-| **ARD** (HTTPS) | `${CAP_BASE_URL}/.well-known/ai-catalog.json` + `${ARD_API_BASE}/search` Lambda | One JSON document listing ALL 8 agents with rich trustManifest, attestations, schemaOrg vocabulary. Searchable via `POST /search` query model (§7.1 of the spec). |
+| **DNS-AID** (SVCB) | `<agent>.<zone>` records in Route 53 | One record per agent. SVCB target + alpn + port + cap_uri/policy_uri in TXT companions. Used in C2/C3 as the primary path. |
+| **ARD** (HTTPS) | `${ARD_GLOBAL_CATALOG}` (static) + `${ARD_API_BASE}/search` (Lambda) | One JSON document listing ALL 8 agents with full `trustManifest` (DID/SPIFFE identity, attestations, provenance), spec-correct `publisher` object, top-level `version`/`updatedAt`. Searchable via ARD §7.1 `{query: {text, filter}}` model. |
 
 Curl the global ARD catalog so you can see what an enterprise's
-federation manifest actually looks like — 8 agents, full metadata:
+federation manifest actually looks like — 8 agents, full
+spec-correct shape:
 
 ```run
 source /opt/lab/lab.env
-curl -s "${ARD_GLOBAL_CATALOG}" | python3 -m json.tool | head -60
+curl -s "${ARD_GLOBAL_CATALOG}" | python3 -m json.tool | head -70
 ```
 
-You should see `specVersion`, `host` (the publisher envelope),
-`entries[]` (each with `identifier` URN, `displayName`, `type`,
-`url`, `tags`, `metadata.*`, `trustManifest` with SPIFFE identity +
-attestations), and a `collections[]` pointer at per-student catalogs.
+You'll see (per the [AI Catalog CDDL schema](https://ai-catalog.io/)):
+
+- `specVersion: "1.0"` and a `host` envelope with a `did:web:` identifier
+  + signed `trustManifest`
+- `entries[]` — 8 catalog entries, each carrying:
+  - `identifier` — `urn:air:<publisher>:agent:<name>` format
+  - `type: "application/mcp-server-card+json"` — IANA media type from spec §6
+  - `url` — pointer at the MCP server card
+  - `version`, `updatedAt`, `description`, `tags` (top-level)
+  - `publisher` object with `did:web:` identifier + display name
+  - `trustManifest` with SPIFFE identity + 4 attestations
+    (`publisher-identity`, `SOC2-Type2`, `ISO27001-2022`, `GDPR-DPA`),
+    `provenance` with `publishedFrom` relation + sha256 digests,
+    `trustSchema` for governance reference
+  - `metadata.*` extension namespace with `io.dnsaid.*` keys for
+    vendor-specific data (`capUri`, `policyUri`, `tools`, `rateLimit`,
+    `cost`) plus broadly-useful keys (`repository`, `license`,
+    `supportContact`)
 
 Now hit the search Lambda — natural-language query, returns the
 matching subset ranked by relevance:
@@ -281,45 +301,53 @@ for r in d['results']:
 PY
 ```
 
-Your own per-student catalog was seeded at boot with all 8 reference
-agents, rewritten under YOUR sandbox's URN namespace
-(`urn:air:${SANDBOX_SLUG}.${ZONE}:agent:<name>`) and SPIFFE identity
-(`spiffe://${SANDBOX_SLUG}.${ZONE}/agents/<name>`). C2 will
-`ard-publish` your own version of `ip-reputation` and the existing
-entry gets idempotently replaced — same shape, real publish flow.
+### Your per-student federation view
+
+Each sandbox gets its OWN derived view of the federation. The ARD
+Lambda intercepts `GET /students/<slug>/catalog` (and `POST
+/students/<slug>/search`), takes the global catalog, and rewrites
+the host envelope + every entry's `identifier`, `publisher`, and
+`trustManifest.identity` to anchor under YOUR sandbox's namespace.
+No persistence, no S3 write — derived on every request from the
+canonical global manifest.
 
 ```run
-curl -s "${ARD_STUDENT_CATALOG}" \
+curl -s "${ARD_API_BASE}/students/${SANDBOX_SLUG}/catalog" \
   | python3 <<'PY'
 import json, sys
 d = json.load(sys.stdin)
 print(f"host: {d['host']['displayName']}")
 print(f"      identifier = {d['host']['identifier']}")
-print(f"      published  = {d['host'].get('publishedAt')}")
-print(f"\n{len(d['entries'])} agents in YOUR catalog:")
+print(f"\n{len(d['entries'])} agents under YOUR sandbox's URN namespace:")
 for e in d['entries']:
-    print(f"  - {e['identifier']:60} ({e['displayName']})")
+    print(f"  - {e['identifier']}")
+    print(f"      publisher: {e['publisher']['identifier']}")
+    print(f"      trust id:  {e['trustManifest']['identity']}")
 PY
 ```
 
-> **If the curl above returns nothing**, the sandbox was started
-> before today's catalog-seeding patch landed. Re-seed once with this
-> one-liner (uses the global catalog as the template):
->
-> ```run
-> python3 -c "
-> import json, urllib.request, datetime, os, sys
-> slug = os.environ['SANDBOX_SLUG']; zone = os.environ['ZONE']
-> g = json.loads(urllib.request.urlopen(os.environ['ARD_GLOBAL_CATALOG']).read())
-> g['host'] = {'displayName': f'Sandbox {slug}', 'identifier': f'{slug}.{zone}',
->              'publishedAt': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')}
-> for e in g['entries']:
->     if ':agent:' in e.get('identifier',''):
->         e['identifier'] = f\"urn:air:{slug}.{zone}:agent:\" + e['identifier'].rsplit(':',1)[-1]
-> print(json.dumps(g, indent=2))
-> " | aws s3 cp - "s3://ietf-vienna-cap-docs/students/${SANDBOX_SLUG}/.well-known/ai-catalog.json" \
->      --content-type application/json --cache-control "public, max-age=60"
-> ```
+Compare with the GLOBAL catalog — same entries, different ownership:
+
+```run
+curl -s "${ARD_GLOBAL_CATALOG}" \
+  | python3 <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+print(f"host: {d['host']['displayName']}")
+print(f"      identifier = {d['host']['identifier']}")
+print(f"\nfirst 3 entries in GLOBAL catalog:")
+for e in d['entries'][:3]:
+    print(f"  - {e['identifier']}")
+    print(f"      publisher: {e['publisher']['identifier']}")
+PY
+```
+
+> **Pedagogical note**: in the AI Catalog spec, anyone publishing a
+> catalog hosts a `/.well-known/ai-catalog.json` at their domain. The
+> Lambda-derive pattern this lab uses is a fast workshop shortcut so
+> every sandbox sees a personalised view without needing per-sandbox
+> S3 write credentials. A real enterprise federation publishes a
+> static catalog signed with the publisher's key.
 
 In C2 you'll publish via BOTH transports (DNS-AID `publish` + ARD
 `ard-publish`) and see your agent appear in your own catalog

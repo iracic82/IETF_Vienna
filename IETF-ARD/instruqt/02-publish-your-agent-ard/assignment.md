@@ -289,53 +289,84 @@ before letting the agent invoke `lookup_ip`.
 > the previous step to skip that window — production federations
 > instead design publish cadence around it.
 
-## Also publish via ARD — same agent, second discovery transport
+## Also discoverable via ARD — same agent, second transport
 
-You've published `ip-reputation` via DNS-AID. Now publish the SAME
-agent into your ARD (Agentic Resource Discovery) per-student
-catalog. The `ard-publish` wrapper fetches the agent's `v1.json` cap
-doc, translates it into a spec-compliant ARD `CatalogEntry` (per
-[ARD §4](https://agenticresourcediscovery.org/spec/)), and appends
-it to `${ARD_STUDENT_CATALOG}`:
+You just published `ip-reputation` via DNS-AID (SVCB record + TXT
+companions in Route 53). The SAME agent is **also visible** via the
+ARD HTTPS catalog — no second publish needed. The ARD Lambda
+auto-derives your sandbox's view of the federation from the global
+catalog and rewrites every entry's identifier, publisher, and trust
+identity to anchor under your slug.
 
-```run
-ard-publish ip-reputation
-```
-
-Now your per-student ARD catalog has one entry:
+Confirm both discovery transports return the same `ip-reputation`:
 
 ```run
-curl -s "${ARD_STUDENT_CATALOG}" | python3 -m json.tool
+echo "=== DNS-AID path (SVCB record you just published) ==="
+dig +noall +answer SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+
+echo
+echo "=== ARD path (catalog entry, slug-namespaced) ==="
+curl -s -X POST "${ARD_API_BASE}/students/${SANDBOX_SLUG}/search" \
+    -H 'content-type: application/json' \
+    -d '{"query":{"text":"ip reputation"}}' \
+  | python3 <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+print(f"matched {d['totalCount']} agents")
+top = d['results'][0]
+print(f"top match: {top['identifier']}")
+print(f"  type:       {top['type']}")
+print(f"  publisher:  {top['publisher']['identifier']}")
+print(f"  trust id:   {top['trustManifest']['identity']}")
+print(f"  cap_uri:    {top['metadata']['io.dnsaid.capUri']}")
+print(f"  policy_uri: {top['metadata']['io.dnsaid.policyUri']}")
+PY
 ```
 
-And the ARD search Lambda can find it via natural-language query —
-because catalog reads from S3 on every request, the new entry is
-visible immediately:
+> **The same `ip-reputation` agent is discoverable via both planes**:
+> - DNS-AID: `dig SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE}` returns
+>   the SVCB record + TXT companions with cap_uri and policy_uri.
+> - ARD: `POST ${ARD_API_BASE}/students/${SANDBOX_SLUG}/search`
+>   returns the rich catalog entry with trustManifest (publisher-identity
+>   + SOC2-Type2 + ISO27001-2022 + GDPR-DPA attestations), provenance
+>   (publishedFrom GitHub with sha256 digests), trustSchema, and the
+>   `io.dnsaid.capUri` / `io.dnsaid.policyUri` metadata pointing at
+>   the same S3 URLs as the DNS-AID SVCB carries.
+>
+> Both discovery transports resolve to the same `fastmcp-ip-reputation`
+> backend. **Discovery is a transport choice, not a runtime property
+> of the agent itself.**
+
+### Try a filter query — find every agent with a SOC2 attestation
 
 ```run
 curl -s -X POST "${ARD_API_BASE}/students/${SANDBOX_SLUG}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"text":"ip reputation lookup"}}' \
-    | python3 -m json.tool
+    -d '{"query":{"filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' \
+  | python3 <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+print(f"agents with a SOC2-Type2 attestation: {d['totalCount']}")
+for r in d['results']:
+    print(f"  - {r['displayName']:20}  ({r['identifier']})")
+PY
 ```
 
-> **The same `ip-reputation` agent is now discoverable via both planes**:
-> - DNS-AID: `dig SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE}` returns
->   the SVCB record with cap_uri/policy_uri SvcParams.
-> - ARD: `POST ${ARD_API_BASE}/students/${SANDBOX_SLUG}/search` returns
->   the catalog entry with trustManifest and metadata.
->
-> Both discovery transports resolve to the same `fastmcp-ip-reputation`
-> backend. Pedagogical point: **discovery is a transport choice, not
-> a runtime property of the agent itself**.
+ARD's filter semantics (§7.1 of the spec) let you constrain on any
+field path with dot-resolution — `trustManifest.attestations.type`,
+`tags`, `metadata."io.dnsaid.protocol"`, etc.
 
-(Optional) Publish a second agent so your catalog has multiple entries:
+### Why no `ard-publish` step?
 
-```run
-ard-publish url-scanner
-ard-publish asn-info
-curl -s "${ARD_STUDENT_CATALOG}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(f"{len(d[\"entries\"])} agents in your catalog:"); [print(f"  {e[\"identifier\"]}") for e in d["entries"]]'
-```
+The AI Catalog spec assumes the publisher hosts a static
+`/.well-known/ai-catalog.json` at their own domain (or runs their
+own search registry). This workshop's per-sandbox AWS credentials
+are deliberately scoped to Route 53 zone changes only — no S3 write
+access — so we can't publish into the bucket from the lab terminal.
+Instead, the Lambda derives your view at request time, which gives
+the SAME pedagogical outcome (per-publisher catalog with your URN
+namespace) without per-sandbox AWS provisioning. In production:
+publish a signed static catalog and point clients at `/.well-known/`.
 
 ## Verify the xDS layer caught up + warm up the gateway
 

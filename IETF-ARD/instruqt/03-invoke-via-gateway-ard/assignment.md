@@ -366,36 +366,67 @@ curl -s -X POST "${ARD_API_BASE}/search" \
   | python3 <<'PY'
 import json, sys
 d = json.load(sys.stdin)
-print(f"matched: {d['totalCount']} agents (ranked)")
+print(f"matched: {d['totalCount']} agents (ranked by token-overlap score)")
 for r in d['results'][:3]:
-    print(f"  score={r['score']:5.1f}  {r['displayName']:22}  {r['identifier']}")
-    print(f"            metadata.cap_uri        = {r['metadata']['cap_uri']}")
-    print(f"            metadata.policy_uri     = {r['metadata']['policy_uri']}")
-    print(f"            trustManifest.identity  = {r['trustManifest']['identity']}")
+    print(f"\n  score={r['score']:5.1f}  {r['displayName']}")
+    print(f"    identifier    : {r['identifier']}")
+    print(f"    version       : {r['version']}")
+    print(f"    publisher     : {r['publisher']['identifier']}")
+    print(f"    trust identity: {r['trustManifest']['identity']}")
+    print(f"    cap_uri       : {r['metadata']['io.dnsaid.capUri']}")
+    print(f"    policy_uri    : {r['metadata']['io.dnsaid.policyUri']}")
+    print(f"    attestations  : {[a['type'] for a in r['trustManifest']['attestations']]}")
 PY
 ```
 
-The top result's `metadata.cap_uri` and `metadata.policy_uri` are
-**the same URLs** the DNS-AID SVCB record's SvcParams (cap, policy)
-point at. Different discovery transport → same downstream artifacts
-→ same backend invocation. ARD is a **discovery substrate choice**,
-not a runtime-architecture choice.
+The top result's `metadata."io.dnsaid.capUri"` and
+`metadata."io.dnsaid.policyUri"` are **the same URLs** the DNS-AID
+SVCB record's TXT companions carry. Different discovery transport →
+same downstream artifacts → same backend invocation. ARD is a
+**discovery substrate choice**, not a runtime-architecture choice.
 
 > **Why this matters for federation interop**: an enterprise can run
 > BOTH planes in parallel. DNS-aware clients (mobile, CLI tools,
 > network appliances) use the SVCB path. Web-and-LLM-native clients
-> (catalogs in dashboards, agent search) use the ARD HTTPS path. The
-> agent itself doesn't care — once it has the cap_uri it goes the
-> same place. dns-aid-core 0.26+ will parse the ARD format too,
-> exposing both via the same `discover_agents_via_dns` MCP tool.
+> (dashboards, registry browsers, agent search) use the ARD HTTPS
+> path. The agent itself doesn't care — once it has the cap_uri it
+> goes the same place. dns-aid-core 0.26+ will read ARD catalogs
+> natively via the same `discover_agents_via_http_index` MCP tool
+> path — until then, this lab demonstrates the transport via direct
+> curl.
 
-Filter your per-student catalog by what you've published:
+Try YOUR per-student federation view — same content, your URN
+namespace:
 
 ```run
 curl -s -X POST "${ARD_API_BASE}/students/${SANDBOX_SLUG}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"filter":{"tags":["ip-reputation"]}}}' \
-    | python3 -m json.tool
+    -d '{"query":{"text":"ip reputation"}}' \
+  | python3 <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+print(f"YOUR catalog matched: {d['totalCount']} agents")
+top = d['results'][0]
+print(f"top: {top['identifier']}")
+print(f"     publisher  = {top['publisher']['identifier']}")
+print(f"     trust id   = {top['trustManifest']['identity']}")
+PY
+```
+
+Try a structured filter on the nested `trustManifest.attestations.type`
+field path (ARD §7.1 dot-resolution):
+
+```run
+curl -s -X POST "${ARD_API_BASE}/search" \
+    -H 'content-type: application/json' \
+    -d '{"query":{"text":"intel","filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' \
+  | python3 <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+print(f"{d['totalCount']} threat-intel agents with SOC2-Type2 attestation:")
+for r in d['results']:
+    print(f"  {r['displayName']:20}  ({r['identifier']})")
+PY
 ```
 
 ## Bonus 3 (optional) — watch the SDK caller-side guard deny a call
