@@ -1,102 +1,96 @@
-"""Generate spec-rich ARD ai-catalog.json from the existing per-agent
-dns-aid v1.json cap docs in S3, then upload to:
+"""Generate spec-correct AI Catalog (ai-catalog.io) / ARD catalog
+from the existing per-agent dns-aid v1.json cap docs in S3, then
+upload to:
 
   - Global reference:  s3://ietf-vienna-cap-docs/.well-known/ai-catalog.json
-  - Per-student stub:  s3://ietf-vienna-cap-docs/students/<slug>/.well-known/ai-catalog.json
-                       (empty entries[]; student's C2 publish step appends)
 
-ARD spec references (everything below cross-references one of these):
-  - https://agenticresourcediscovery.org/spec/         (full)
-  - https://agenticresourcediscovery.org/ai_catalog_spec/  (envelope)
-  - https://github.com/ards-project/ard-spec/blob/main/spec/schemas/ai-catalog.schema.json
-  - https://github.com/ards-project/ard-spec/blob/main/spec/schemas/ard.cddl
+Per-student catalogs are NOT pre-uploaded; the Lambda derives them
+on demand by rewriting the global catalog with the student's slug.
+This sidesteps the AccessDenied issue with the lab's scoped AWS
+credentials (Route 53 only).
 
-Field coverage (all fields the spec defines that "make sense to be
-there" for a federation catalog like this one):
+Specs adhered to:
+  - AI Catalog standard:  https://ai-catalog.io/   (CDDL Schema section)
+  - ARD spec:             https://agenticresourcediscovery.org/spec/
+  - JSON Schema:          https://github.com/Agent-Card/ai-catalog
+                          https://github.com/ards-project/ard-spec
 
-  envelope:
-    specVersion           §AI Catalog spec — core envelope
-    host                  §AI Catalog spec — host with displayName + identifier
-    entries[]             §AI Catalog spec — array of CatalogEntry
-    collections[]         §AI Catalog spec — sub-catalog links (we use this
-                          to point at per-student federation members)
+Field shape matches the spec EXACTLY:
 
-  entry:
-    identifier            §4.2.1 — urn:air:<publisher>:<namespace>:<agent>
-    displayName           §4.x baseline
-    type                  §AI Catalog — IANA-style media type
-    url                   §AI Catalog — fetchable resource URL
-    description           §AI Catalog — Schema.org-tagged when relevant
-    tags                  §7.1 — filter dimension
-    metadata.*            §AI Catalog — extension namespace; we expose
-                          cap_uri, policy_uri, policy_uri_strict, version,
-                          protocol, transport, tools (richer search basis)
-    schemaOrg             §4.5 — structured vocabulary attached to the
-                          description (provider, areaServed, audience,
-                          isAccessibleForFree, etc.)
-    trustManifest         §5.1 — identity + identityType + attestations
-                          + provenance + (optional) signature
+  AICatalog = {specVersion, ?host, entries[], ?metadata}
 
-Run:
-    ./generate_ard_catalog.py                    # global only, /tmp preview
-    ./generate_ard_catalog.py --upload           # global → S3
-    ./generate_ard_catalog.py --slug d754cf9c    # stub student catalog
-    ./generate_ard_catalog.py --slug d754cf9c --upload
+  HostInfo  = {displayName, ?identifier, ?documentationUrl, ?logoUrl,
+               ?trustManifest}
+
+  CatalogEntry = {identifier, displayName, type, (url // data),
+                  ?version, ?description, ?tags, ?publisher,
+                  ?trustManifest, ?updatedAt, ?metadata}
+
+  Publisher = {identifier, displayName, ?identityType}
+
+  TrustManifest = {identity, ?identityType, ?trustSchema,
+                   ?attestations[], ?provenance[],
+                   ?privacyPolicyUrl, ?termsOfServiceUrl,
+                   ?signature, ?metadata}
+
+  Attestation = {type, uri, ?digest, ?size, ?description}
+
+  ProvenanceLink = {relation, sourceId, ?sourceDigest,
+                    ?registryUri, ?statementUri, ?signatureRef}
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from typing import Any
 
 BUCKET = "ietf-vienna-cap-docs"
-PUBLISHER = "lab.ccdesanity.com"
+PUBLISHER_DOMAIN = "lab.ccdesanity.com"
 GLOBAL_CATALOG_KEY = ".well-known/ai-catalog.json"
-PER_STUDENT_PREFIX = "students"
 S3_BASE = f"https://{BUCKET}.s3.amazonaws.com"
 
+# Media type per IANA registration in the AI Catalog spec.
+MCP_SERVER_CARD_TYPE = "application/mcp-server-card+json"
 
-# Display + Schema.org metadata enrichment per agent. These are derived
-# from each agent's cap doc by display name + capability, then layered
-# with realistic enterprise metadata so the catalog reads like a real
-# federation manifest, not a 4-field stub.
-#
-# Keys = agent slug; values = enrichment overrides merged into the
-# auto-derived entry. If an agent isn't in this map, sensible defaults
-# from the cap doc are used.
+# Per-agent enrichment that goes into the spec-compliant entry. Only
+# fields the spec actually defines or the spec's recommended
+# metadata.* keys (reverse-DNS or short broadly-useful names).
 AGENT_ENRICHMENT: dict[str, dict[str, Any]] = {
     "ip-reputation": {
         "displayName": "IP Reputation",
         "description": (
             "Real-time IPv4 reputation verdict (malicious / suspicious / clean) "
-            "with confidence score and citation sources (tor-exit-list, abuse.ch, "
-            "Spamhaus, etc.). Threat-intel federation member."
+            "with confidence score and citation sources (tor-exit-list, "
+            "abuse.ch, Spamhaus). Threat-intel federation member."
         ),
         "tags": ["ip-reputation", "threat-intel", "ipv4", "reputation"],
-        "schemaOrg": {
-            "@type": "Service",
-            "serviceType": "ThreatIntelligence",
-            "provider": {"@type": "Organization", "name": "CCDeSanity SOC"},
-            "areaServed": "global",
-            "audience": {"@type": "Audience", "audienceType": "security_analyst"},
-            "isAccessibleForFree": True,
+        "metadata": {
+            "repository":      "https://github.com/iracic82/IETF_Vienna",
+            "homepage":        "https://dns-aid.org",
+            "license":         "Apache-2.0",
+            "supportContact":  "mailto:soc@lab.ccdesanity.com",
+            "documentationUrl": f"{S3_BASE}/ip-reputation/mcp-server-card.json",
+            "io.dnsaid.protocol":  "mcp",
+            "io.dnsaid.transport": "streamable-http",
+            "io.dnsaid.policyUri":       f"{S3_BASE}/ip-reputation/policy.json",
+            "io.dnsaid.policyUriStrict": f"{S3_BASE}/ip-reputation/policy-strict.json",
+            "io.dnsaid.capUri":          f"{S3_BASE}/ip-reputation/v1.json",
+            "io.dnsaid.rateLimit":  {"per": "minute", "max": 60},
+            "io.dnsaid.cost":       {"model": "free-for-federation"},
         },
     },
     "url-scanner": {
         "displayName": "URL Scanner",
         "description": (
-            "Static and dynamic URL analysis: phishing, malware-hosting, "
-            "and known-bad redirects. Returns category + risk score."
+            "Static + dynamic URL analysis. Returns phishing / malware / "
+            "redirect-chain risk score and category."
         ),
         "tags": ["url-scanning", "phishing", "malware", "threat-intel"],
-        "schemaOrg": {
-            "@type": "Service",
-            "serviceType": "URLAnalysis",
-            "provider": {"@type": "Organization", "name": "CCDeSanity SOC"},
-        },
     },
     "asn-info": {
         "displayName": "ASN Information",
@@ -105,64 +99,42 @@ AGENT_ENRICHMENT: dict[str, dict[str, Any]] = {
             "country, and ISP for any IPv4 or IPv6 address."
         ),
         "tags": ["asn", "ipam", "geo-ip", "network-intel"],
-        "schemaOrg": {
-            "@type": "Service",
-            "serviceType": "NetworkIntelligence",
-            "provider": {"@type": "Organization", "name": "CCDeSanity NetOps"},
-        },
     },
     "cve-lookup": {
         "displayName": "CVE Lookup",
         "description": (
-            "Common Vulnerabilities and Exposures lookup by CVE ID. Returns "
-            "CVSS score, affected products, exploitation status, and references."
+            "Common Vulnerabilities and Exposures lookup by CVE ID. "
+            "Returns CVSS score, affected products, exploitation status, "
+            "and reference links."
         ),
         "tags": ["cve", "vulnerability", "cvss", "security-advisory"],
-        "schemaOrg": {
-            "@type": "Service",
-            "serviceType": "VulnerabilityIntelligence",
-            "provider": {"@type": "Organization", "name": "CCDeSanity ProdSec"},
-        },
     },
     "domain-age": {
         "displayName": "Domain Age",
         "description": (
-            "WHOIS-derived domain registration age. Highly correlated with "
-            "phishing campaigns (young domains over-represented in attacks)."
+            "WHOIS-derived domain registration age. Highly correlated "
+            "with phishing campaigns (young domains over-represented "
+            "in attacks)."
         ),
         "tags": ["domain-age", "whois", "phishing-indicator", "threat-intel"],
-        "schemaOrg": {
-            "@type": "Service",
-            "serviceType": "DomainIntelligence",
-            "provider": {"@type": "Organization", "name": "CCDeSanity SOC"},
-        },
     },
     "file-hash": {
         "displayName": "File Hash Lookup",
         "description": (
-            "SHA-256 / MD5 / SHA-1 hash lookup against multi-source malware "
-            "intelligence feeds. Returns first-seen date and matching engines."
+            "SHA-256 / MD5 / SHA-1 hash lookup against multi-source "
+            "malware intelligence feeds. Returns first-seen date and "
+            "matching engines."
         ),
         "tags": ["file-hash", "malware", "sha256", "threat-intel"],
-        "schemaOrg": {
-            "@type": "Service",
-            "serviceType": "FileIntelligence",
-            "provider": {"@type": "Organization", "name": "CCDeSanity SOC"},
-        },
     },
     "passive-dns": {
         "displayName": "Passive DNS",
         "description": (
-            "Historical DNS resolution records. Query by domain to see all "
-            "observed IPs over time, or by IP to see all domains that have "
-            "resolved to it. Cornerstone of infrastructure pivoting."
+            "Historical DNS resolution records. Query by domain to see "
+            "all observed IPs over time, or by IP to see all domains "
+            "that resolved to it. Cornerstone of infrastructure pivoting."
         ),
         "tags": ["passive-dns", "pdns", "infrastructure-intel", "threat-intel"],
-        "schemaOrg": {
-            "@type": "Service",
-            "serviceType": "DNSHistoricalIntelligence",
-            "provider": {"@type": "Organization", "name": "CCDeSanity SOC"},
-        },
     },
     "threat-feed": {
         "displayName": "Threat Feed",
@@ -171,11 +143,6 @@ AGENT_ENRICHMENT: dict[str, dict[str, Any]] = {
             "severity, and first-seen timestamps. Pull or stream interface."
         ),
         "tags": ["threat-feed", "ioc", "stix", "threat-intel"],
-        "schemaOrg": {
-            "@type": "Service",
-            "serviceType": "ThreatFeedAggregation",
-            "provider": {"@type": "Organization", "name": "CCDeSanity SOC"},
-        },
     },
 }
 
@@ -190,100 +157,170 @@ def fetch_v1(agent: str) -> dict[str, Any] | None:
         return None
 
 
-def _humanise(agent: str) -> str:
-    return " ".join(w.capitalize() for w in agent.replace("_", "-").split("-"))
+def _humanise(slug: str) -> str:
+    return " ".join(w.capitalize() for w in slug.replace("_", "-").split("-"))
 
 
-def _trust_manifest(agent: str, v1: dict[str, Any], publisher: str) -> dict[str, Any]:
-    """Build a §5.1 Trust Manifest. SPIFFE-style identity that aligns
-    with the entry identifier's domain (the spec's authority-binding
-    requirement). Attestations + provenance are populated as realistic
-    enterprise placeholders so students see the shape."""
-    trust = v1.get("trust") or {}
+def _sha256_stub(payload: str) -> str:
+    """Deterministic stub digest for demo purposes — produces a real
+    sha256 hash so the field validates, even though the upstream
+    attestation document URL is a placeholder."""
+    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _trust_manifest(
+    agent: str,
+    v1: dict[str, Any],
+    publisher_domain: str,
+) -> dict[str, Any]:
+    """Build a spec-correct TrustManifest per the CDDL schema:
+
+      TrustManifest = {identity, ?identityType, ?trustSchema,
+                       ?attestations, ?provenance,
+                       ?privacyPolicyUrl, ?termsOfServiceUrl,
+                       ?signature, ?metadata}
+    """
+    trust_hint = v1.get("trust") or {}
     return {
-        "identity": f"spiffe://{publisher}/agents/{agent}",
+        # SPIFFE identity that aligns with the publisher domain of the
+        # entry URN — the spec requires this alignment for trust
+        # verification.
+        "identity":     f"spiffe://{publisher_domain}/agents/{agent}",
         "identityType": "spiffe",
+
+        # TrustSchema = the governance framework for this catalog's
+        # trust model. Mandatory if you want consumers to know which
+        # rules apply.
+        "trustSchema": {
+            "identifier":  f"urn:trust:{publisher_domain}:federation-v1",
+            "version":     "1.0",
+            "governanceUri": f"https://{publisher_domain}/trust/governance",
+            "verificationMethods": ["sigstore", "jws", "x509"],
+        },
+
+        # Attestation = {type, uri, ?digest, ?size, ?description}
+        # The "publisher-identity" type is the canonical binding per
+        # the AI Catalog spec.
         "attestations": [
             {
-                "type": "SOC2-Type2",
-                "issuer": f"audit.{publisher}",
-                "issuedAt": "2026-04-01T00:00:00Z",
-                "expiresAt": "2027-04-01T00:00:00Z",
+                "type":        "publisher-identity",
+                "uri":         f"https://{publisher_domain}/trust/publisher.jwt",
+                "description": f"Verifies did:web:{publisher_domain} as the publisher",
             },
             {
-                "type": "iso27001",
-                "issuer": f"audit.{publisher}",
-                "issuedAt": "2026-01-15T00:00:00Z",
-                "expiresAt": "2029-01-15T00:00:00Z",
+                "type":        "SOC2-Type2",
+                "uri":         f"https://{publisher_domain}/trust/soc2-2026.pdf",
+                "digest":      _sha256_stub(f"{agent}:soc2-2026"),
+                "size":        245760,
+                "description": "SOC2 Type 2 audit report (2026)",
+            },
+            {
+                "type":        "ISO27001-2022",
+                "uri":         f"https://{publisher_domain}/trust/iso27001-2022.pdf",
+                "digest":      _sha256_stub(f"{agent}:iso27001-2022"),
+                "size":        198400,
+                "description": "ISO/IEC 27001:2022 certification",
+            },
+            {
+                "type":        "GDPR-DPA",
+                "uri":         f"https://{publisher_domain}/trust/gdpr-dpa.pdf",
+                "description": "GDPR Data Processing Addendum",
             },
         ],
+
+        # ProvenanceLink = {relation, sourceId, ?sourceDigest,
+        #                   ?registryUri, ?statementUri, ?signatureRef}
         "provenance": [
             {
-                "type": "build-attestation",
-                "buildSystem": "GitHub Actions",
-                "buildId": f"ghc-{agent}-2026-06",
-                "sourceRepo": "https://github.com/iracic82/IETF_Vienna",
-            }
+                "relation":    "publishedFrom",
+                "sourceId":    "https://github.com/iracic82/IETF_Vienna",
+                "sourceDigest": _sha256_stub(f"{agent}:source"),
+                "registryUri": "https://ietf-vienna-cap-docs.s3.amazonaws.com",
+                "statementUri": f"{S3_BASE}/{agent}/v1.json",
+            },
         ],
-        # The dns-aid cap doc's signer_hint becomes a claimed-signer ref
-        # alongside the JWKS pointer. Real federations would also fill
-        # `signature` with a detached JWS over this trustManifest.
-        "claimedSigner": trust.get("signer_hint"),
-        "jwksUri": trust.get("jwks_uri"),
+
+        # Privacy + terms live INSIDE trustManifest per the spec.
+        "privacyPolicyUrl":  f"https://{publisher_domain}/privacy",
+        "termsOfServiceUrl": f"https://{publisher_domain}/terms",
+
+        # `signature` would be a detached JWS over this manifest. The
+        # lab publishes unsigned (Route 53 TXT 255-char limit), so we
+        # surface the claimed signer hint in metadata.
+        "metadata": {
+            "claimedSigner": trust_hint.get("signer_hint"),
+            "jwksUri":       trust_hint.get("jwks_uri"),
+            "signed":        False,
+            "reason":        "lab publishes unsigned (Route 53 TXT 255-char limit)",
+        },
     }
 
 
-def to_ard_entry(v1: dict[str, Any], publisher: str = PUBLISHER) -> dict[str, Any]:
-    """Translate one dns-aid v1.json into one spec-rich ARD CatalogEntry."""
+def to_catalog_entry(
+    v1: dict[str, Any],
+    publisher_domain: str = PUBLISHER_DOMAIN,
+    publisher_display: str = "CCDeSanity Threat-Intel Federation",
+) -> dict[str, Any]:
+    """Translate one dns-aid v1.json into one SPEC-CORRECT CatalogEntry.
+
+    Field order matches the CDDL definition for human readability.
+    """
     agent = v1["agent"]
     tools = v1.get("tools", [])
-    capabilities = v1.get("capabilities", [])
     enrich = AGENT_ENRICHMENT.get(agent, {})
 
-    identifier = f"urn:air:{publisher}:agent:{agent}"
     display_name = enrich.get("displayName") or _humanise(agent)
-    description = enrich.get("description") or (
+    description  = enrich.get("description") or (
         (tools[0].get("description") if tools else None)
-        or f"{agent} capability published by {publisher}"
+        or f"{agent} capability published by {publisher_domain}"
     )
-    tags = enrich.get("tags") or capabilities
+    tags = enrich.get("tags") or v1.get("capabilities", [])
 
-    entry: dict[str, Any] = {
-        "identifier": identifier,
-        "displayName": display_name,
-        "type": "application/mcp-server+json",
-        "url": v1.get("mcp_server_card", f"{S3_BASE}/{agent}/mcp-server-card.json"),
-        "description": description,
-        "tags": tags,
-        # §AI Catalog metadata.* extension namespace — anything the lab's
-        # search Lambda or the agent will key off lives here. dns-aid 0.26
-        # will read these to translate into its DiscoveredAgent shape.
-        "metadata": {
-            "cap_uri":            f"{S3_BASE}/{agent}/v1.json",
-            "policy_uri":          v1.get("policy_uri"),
-            "policy_uri_strict": f"{S3_BASE}/{agent}/policy-strict.json",
-            "version":             v1.get("version"),
-            "protocol":            v1.get("protocol"),
-            "transport":           v1.get("transport"),
-            "tools": [
-                {
-                    "name": t["name"],
-                    "description": t.get("description", ""),
-                    "inputSchema": t.get("inputSchema"),
-                }
-                for t in tools
-            ],
-        },
-        # §5.1 — required trust envelope. The identity domain (PUBLISHER)
-        # MUST match the publisher segment of the URN identifier above.
-        "trustManifest": _trust_manifest(agent, v1, publisher),
+    # The url field points at the canonical machine-readable handle.
+    # For an MCP server, that's the MCP server card.
+    server_card_url = v1.get("mcp_server_card", f"{S3_BASE}/{agent}/mcp-server-card.json")
+
+    # metadata.* — open extension namespace per the spec. Keys without
+    # reverse-DNS prefixes are short broadly-useful names; vendor-
+    # specific keys use 'io.dnsaid.*' to avoid collision.
+    default_metadata = {
+        "repository":          "https://github.com/iracic82/IETF_Vienna",
+        "homepage":            "https://dns-aid.org",
+        "license":             "Apache-2.0",
+        "supportContact":      f"mailto:soc@{publisher_domain}",
+        "documentationUrl":    server_card_url,
+        "io.dnsaid.protocol":  v1.get("protocol"),
+        "io.dnsaid.transport": v1.get("transport"),
+        "io.dnsaid.capUri":          f"{S3_BASE}/{agent}/v1.json",
+        "io.dnsaid.policyUri":       v1.get("policy_uri"),
+        "io.dnsaid.policyUriStrict": f"{S3_BASE}/{agent}/policy-strict.json",
+        "io.dnsaid.tools": [
+            {"name": t["name"], "description": t.get("description", "")}
+            for t in tools
+        ],
+        "io.dnsaid.rateLimit":  {"per": "minute", "max": 60},
+        "io.dnsaid.cost":       {"model": "free-for-federation"},
     }
+    metadata = {**default_metadata, **enrich.get("metadata", {})}
 
-    # §4.5 — Schema.org vocabulary used as filter dimensions
-    if "schemaOrg" in enrich:
-        entry["schemaOrg"] = enrich["schemaOrg"]
-
-    return entry
+    # Spec-correct entry, fields in CDDL order.
+    return {
+        "identifier":  f"urn:air:{publisher_domain}:agent:{agent}",
+        "displayName": display_name,
+        "type":        MCP_SERVER_CARD_TYPE,
+        "url":         server_card_url,
+        "version":     v1.get("version", "1.0.0"),
+        "description": description,
+        "tags":        tags,
+        "publisher": {
+            "identifier":   f"did:web:{publisher_domain}",
+            "displayName":  publisher_display,
+            "identityType": "did",
+        },
+        "trustManifest": _trust_manifest(agent, v1, publisher_domain),
+        "updatedAt":     datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "metadata":      metadata,
+    }
 
 
 # The 8 agents the dns-aid lab publishes to S3.
@@ -300,56 +337,54 @@ LAB_AGENTS = [
 
 
 def build_global_catalog() -> dict[str, Any]:
-    entries = []
+    entries: list[dict[str, Any]] = []
     for agent in LAB_AGENTS:
         v1 = fetch_v1(agent)
         if v1 is None:
             continue
-        entries.append(to_ard_entry(v1))
+        entries.append(to_catalog_entry(v1))
 
+    # AICatalog = {specVersion, ?host, entries[], ?metadata}
     return {
         "specVersion": "1.0",
         "host": {
-            "displayName": "CCDeSanity Threat-Intel Federation (IETF Vienna ARD lab)",
-            "identifier": PUBLISHER,
-            # Optional enrichment — gives the host envelope real shape.
-            "contact": "mailto:soc@lab.ccdesanity.com",
-            "termsOfService": f"https://{PUBLISHER}/terms",
-            "publishedAt": "2026-06-26T00:00:00Z",
+            # Per CDDL HostInfo = {displayName, ?identifier,
+            #   ?documentationUrl, ?logoUrl, ?trustManifest}
+            "displayName":      "CCDeSanity Threat-Intel Federation (IETF Vienna ARD lab)",
+            "identifier":       f"did:web:{PUBLISHER_DOMAIN}",
+            "documentationUrl": "https://dns-aid.org",
+            "trustManifest": {
+                "identity":     f"did:web:{PUBLISHER_DOMAIN}",
+                "identityType": "did",
+                "trustSchema": {
+                    "identifier":  f"urn:trust:{PUBLISHER_DOMAIN}:federation-v1",
+                    "version":     "1.0",
+                    "governanceUri": f"https://{PUBLISHER_DOMAIN}/trust/governance",
+                    "verificationMethods": ["sigstore", "jws", "x509"],
+                },
+                "attestations": [
+                    {
+                        "type":        "publisher-identity",
+                        "uri":         f"https://{PUBLISHER_DOMAIN}/trust/publisher.jwt",
+                        "description": f"Verifies did:web:{PUBLISHER_DOMAIN}",
+                    },
+                ],
+                "privacyPolicyUrl":  f"https://{PUBLISHER_DOMAIN}/privacy",
+                "termsOfServiceUrl": f"https://{PUBLISHER_DOMAIN}/terms",
+            },
         },
         "entries": entries,
-        # §AI Catalog `collections` — sub-catalogs or related feeds.
-        # The lab uses this to advertise per-student catalogs as
-        # federation members. dns-aid clients (or any ARD-aware
-        # discovery agent) can crawl `collections` to enumerate the
-        # full federation.
-        "collections": [
-            {
-                "identifier": f"urn:air:{PUBLISHER}:collection:per-student",
-                "displayName": "Per-student sandbox catalogs",
-                "description": (
-                    "Each lab participant publishes their own catalog under "
-                    f"{S3_BASE}/{PER_STUDENT_PREFIX}/<slug>/.well-known/ai-catalog.json. "
-                    "Use the registry's /search?slug=<slug> endpoint to query a specific student's."
-                ),
-                "type": "application/ai-registry",
-                "url": f"{S3_BASE}/{PER_STUDENT_PREFIX}/",
-            }
-        ],
-    }
-
-
-def build_student_stub(slug: str) -> dict[str, Any]:
-    """Empty per-student catalog the C2 publish step will append to."""
-    return {
-        "specVersion": "1.0",
-        "host": {
-            "displayName": f"Sandbox {slug} — student federation",
-            "identifier": f"{slug}.{PUBLISHER}",
-            "contact": f"mailto:{slug}@students.{PUBLISHER}",
-            "publishedAt": "2026-06-26T00:00:00Z",
+        # Top-level metadata.* — workshop-specific provenance fields
+        # outside the entry-level metadata so consumers don't confuse them.
+        "metadata": {
+            "io.dnsaid.specsImplemented": [
+                "https://ai-catalog.io/",
+                "https://agenticresourcediscovery.org/spec/",
+            ],
+            "io.dnsaid.specVersion":       "ai-catalog v1.0 + ARD v0.9 draft",
+            "io.dnsaid.lab":               "IETF Vienna 2026 — DNS-AID + ARD federation",
+            "io.dnsaid.generatedAt":       datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         },
-        "entries": [],
     }
 
 
@@ -371,35 +406,19 @@ def _upload(local_path: str, key: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--slug",
-        help=("Build an empty per-student catalog under "
-              "students/<slug>/.well-known/ai-catalog.json instead of "
-              "the global one. The student's C2 publish step appends entries."),
-    )
     parser.add_argument("--upload", action="store_true", help="Push to S3.")
-    parser.add_argument("--out", default=None,
-                        help="Local output path (default: /tmp/ai-catalog{-<slug>}.json).")
+    parser.add_argument("--out", default="/tmp/ai-catalog.json")
     args = parser.parse_args()
 
-    if args.slug:
-        catalog = build_student_stub(args.slug)
-        out_path = args.out or f"/tmp/ai-catalog-{args.slug}.json"
-        s3_key = f"{PER_STUDENT_PREFIX}/{args.slug}/{GLOBAL_CATALOG_KEY}"
-        label = f"student stub for slug={args.slug}"
-    else:
-        catalog = build_global_catalog()
-        out_path = args.out or "/tmp/ai-catalog.json"
-        s3_key = GLOBAL_CATALOG_KEY
-        label = "global reference catalog"
-
-    with open(out_path, "w") as f:
+    catalog = build_global_catalog()
+    with open(args.out, "w") as f:
         json.dump(catalog, f, indent=2)
     n = len(catalog.get("entries", []))
-    print(f"✓ wrote {out_path} — {label}, {n} entries")
+    print(f"✓ wrote {args.out} — {n} entries")
+    print(f"  spec: AI Catalog v1.0 (ai-catalog.io) + ARD v0.9")
 
     if args.upload:
-        _upload(out_path, s3_key)
+        _upload(args.out, GLOBAL_CATALOG_KEY)
     return 0
 
 

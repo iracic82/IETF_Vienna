@@ -56,15 +56,76 @@ def _catalog_key_for(slug: str | None) -> str:
     return f"{PER_STUDENT_PREFIX}/{slug}/.well-known/ai-catalog.json"
 
 
+def _derive_student_catalog(slug: str, global_catalog: dict[str, Any]) -> dict[str, Any]:
+    """Mint a per-student catalog from the global one by rewriting
+    host + per-entry identifier + per-entry trustManifest.identity to
+    anchor under the student's sandbox namespace
+    (urn:air:<slug>.lab.ccdesanity.com:...).
+
+    This eliminates the need for the lab to ever PUT objects on S3 —
+    the lab's scoped AWS creds (Route 53 only) would 'AccessDenied'
+    on bucket writes anyway.
+    """
+    import copy
+    derived = copy.deepcopy(global_catalog)
+
+    sandbox_domain = f"{slug}.lab.ccdesanity.com"
+    derived["host"] = {
+        "displayName":      f"Sandbox {slug} — student federation",
+        "identifier":       f"did:web:{sandbox_domain}",
+        "documentationUrl": "https://dns-aid.org",
+    }
+
+    for entry in derived.get("entries", []):
+        # urn:air:lab.ccdesanity.com:agent:<name>
+        # → urn:air:<slug>.lab.ccdesanity.com:agent:<name>
+        ident = entry.get("identifier", "")
+        if ":agent:" in ident:
+            name = ident.rsplit(":", 1)[-1]
+            entry["identifier"] = f"urn:air:{sandbox_domain}:agent:{name}"
+        # Rebrand the publisher object to the student's sandbox.
+        if isinstance(entry.get("publisher"), dict):
+            entry["publisher"]["identifier"]  = f"did:web:{sandbox_domain}"
+            entry["publisher"]["displayName"] = f"Sandbox {slug}"
+        # Rewrite trustManifest.identity SPIFFE path to align with new namespace.
+        tm = entry.get("trustManifest")
+        if isinstance(tm, dict) and tm.get("identity", "").startswith("spiffe://"):
+            name = tm["identity"].rsplit("/", 1)[-1]
+            tm["identity"] = f"spiffe://{sandbox_domain}/agents/{name}"
+
+    return derived
+
+
 def _fetch_catalog(slug: str | None) -> dict[str, Any] | None:
-    """Return the ARD catalog dict, or None if not yet published."""
+    """Return the catalog for the given slug, or None if neither
+    persisted (S3) nor derivable (global missing).
+
+    Lookup order:
+      1. If S3 has a published catalog at the slug's path → return it.
+         (Future: when the lab gets S3-write creds, students publish
+         their own entries to this path.)
+      2. Otherwise (slug != None) → derive from global catalog.
+      3. global catalog itself (slug == None) → return as-is.
+    """
     try:
         obj = S3.get_object(Bucket=BUCKET, Key=_catalog_key_for(slug))
         return json.loads(obj["Body"].read())
     except ClientError as exc:
-        if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "NotFound", "404"):
-            return None
-        raise
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code not in ("NoSuchKey", "NotFound", "404", "AccessDenied", "Forbidden"):
+            raise
+        # Fall through to derive-from-global
+
+    if slug is None:
+        return None  # global itself is missing — caller will 404
+
+    # Derive on the fly from the global catalog.
+    try:
+        global_obj = S3.get_object(Bucket=BUCKET, Key=GLOBAL_CATALOG_KEY)
+        global_catalog = json.loads(global_obj["Body"].read())
+    except ClientError:
+        return None
+    return _derive_student_catalog(slug, global_catalog)
 
 
 # ─────────────────────────────────────────────────────────────────────
