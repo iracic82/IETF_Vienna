@@ -6,7 +6,7 @@ set -uo pipefail
 source /opt/lab/lab.env 2>/dev/null || source /tmp/sandbox.env
 
 echo "── 1. SVCB from inside translator container (using dig) ──"
-docker exec translator sh -c "command -v dig >/dev/null 2>&1 && dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1 || echo 'dig not in container; trying python'"
+docker exec translator sh -c "command -v dig >/dev/null 2>&1 && dig +noall +answer SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE} @1.1.1.1 || echo 'dig not in container; trying python'"
 
 echo ""
 echo "── 2. SVCB from inside translator container (using python dnspython) ──"
@@ -14,7 +14,7 @@ docker exec translator python3 - <<PY
 import dns.resolver
 r = dns.resolver.Resolver(configure=False)
 r.nameservers = ["1.1.1.1"]
-fqdn = "_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}"
+fqdn = "ip-reputation.${SANDBOX_SLUG}.${ZONE}"
 print("Querying:", fqdn)
 try:
     ans = r.resolve(fqdn, "SVCB")

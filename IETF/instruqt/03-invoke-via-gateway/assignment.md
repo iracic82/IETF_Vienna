@@ -91,7 +91,7 @@ Watch the terminal as the agent works. You'll see exactly this sequence:
 ```
   [tool] discover_agents_via_dns({'name': 'ip-reputation', 'domain': '<slug>.lab.ccdesanity.com', ...})
   [cap-fetch] GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json
-  [dnssec]   _ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com → ad
+  [dnssec]   ip-reputation.<slug>.lab.ccdesanity.com → ad
   [tool] call_agent_tool({tool_name: 'lookup_ip', endpoint: 'http://agentgateway:3000/ip-reputation/mcp', arguments: {ip: '185.220.101.45'}})
   [result] {"verdict":"malicious","confidence":0.95,"sources":["tor-exit-list","abuse.ch"]}
 
@@ -99,7 +99,7 @@ agent> **Verdict:** malicious
        **Confidence:** 0.95
        **Sources:** ['tor-exit-list', 'abuse.ch']
        **Trust chain (audit):**
-       - SVCB record: _ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com
+       - SVCB record: ip-reputation.<slug>.lab.ccdesanity.com
        - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)
        - JWS signature: not signed (cap doc unsigned)
        - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json
@@ -315,13 +315,13 @@ Re-publish the Challenge 2 command to restore them before moving on.
 source /opt/lab/lab.env
 for r in 1.1.1.1 9.9.9.9 8.8.8.8; do
     printf "%-10s " "$r"
-    dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @$r | tail -1
+    dig +noall +answer SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE} @$r | tail -1
 done
 
 # DNSSEC AD flag — all three should return 'ad' in flags
 for r in 1.1.1.1 9.9.9.9 8.8.8.8; do
     printf "%-10s " "$r"
-    dig +dnssec SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @$r +noall +comments | grep 'flags:'
+    dig +dnssec SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE} @$r +noall +comments | grep 'flags:'
 done
 ```
 
@@ -381,7 +381,7 @@ the lab:
 ```
 analyst>  [tool] discover_agents_via_dns({...})
 [info     ] Discovery complete             agents_found=1 time_ms=51.94
-  [dnssec]   _ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com → ad
+  [dnssec]   ip-reputation.<slug>.lab.ccdesanity.com → ad
   [result] {"__cap_uri": "...v1.json", "__cap_doc": {...}}
 
   [tool] call_agent_tool({'tool_name': 'lookup_ip', 'arguments': {'ip': '185.220.101.45'}, ...})

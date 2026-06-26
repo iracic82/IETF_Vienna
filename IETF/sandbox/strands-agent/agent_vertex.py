@@ -96,7 +96,7 @@ REQUIRED FLOW for IP queries:
             **Confidence:** <confidence from tool result.confidence>
             **Sources:** <comma-joined tool result.sources>
             **Trust chain (audit):**
-            - SVCB record: _ip-reputation._mcp._agents.{SANDBOX_SLUG}.{ZONE}
+            - SVCB record: ip-reputation.{SANDBOX_SLUG}.{ZONE}
             - DNSSEC: <see DNSSEC MAPPING below>
             - JWS signature: <__jws_status from tool result>
             - SDK guard: <__sdk_guard from tool result>
@@ -415,7 +415,7 @@ def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: s
     policy_uri = _resolve_policy_uri(policy_uri)
     _LAST_POLICY_URI = policy_uri
 
-    fqdn = f"_ip-reputation._mcp._agents.{sandbox_slug}.{zone}"
+    fqdn = f"ip-reputation.{sandbox_slug}.{zone}"
     dnssec = _check_dnssec(fqdn, "SVCB")
     print(f"  [dnssec]   {fqdn} → {dnssec['status']}")
 

@@ -5,7 +5,7 @@ WORKDIR /app
 # Install dns-aid library + its peer deps. The wrapper module imports
 # from dns_aid.sdk which transitively requires `mcp` and `typer` —
 # pin them here so the import chain doesn't fail at runtime.
-RUN pip install --no-cache-dir 'dns-aid[mcp,cli,route53]>=0.13.0'
+RUN pip install --no-cache-dir 'dns-aid[mcp,cli,route53]>=0.25.0'
 
 COPY wrapper.py /app/wrapper.py
 

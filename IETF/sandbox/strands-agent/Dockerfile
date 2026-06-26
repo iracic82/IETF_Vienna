@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir \
     "google-cloud-aiplatform>=1.38" \
     "vertexai>=1.43" \
     "mcp>=1.0" \
-    'dns-aid[mcp,cli,route53,cel]>=0.21.3' \
+    'dns-aid[mcp,cli,route53,cel]>=0.25.0' \
     "strands-agents[litellm]>=0.1.0" \
     "litellm[vertex]>=1.50.0"
 

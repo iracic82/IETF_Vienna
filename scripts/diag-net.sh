@@ -14,7 +14,7 @@ import os, socket, ssl, urllib.request, json, struct
 
 SLUG = os.environ["SANDBOX_SLUG"]
 ZONE = os.environ["ZONE"]
-FQDN = f"_ip-reputation._mcp._agents.{SLUG}.{ZONE}"
+FQDN = f"ip-reputation.{SLUG}.{ZONE}"
 
 def hexdns(name):
     """Encode FQDN as DNS wire-format question for type=SVCB (64)."""

@@ -25,7 +25,7 @@ Say:
 
 **Slide 2 — DNS-AID record shape:**
 ```
-_ip-reputation._mcp._agents.<domain>  SVCB 1 gw.<domain>.
+ip-reputation.<domain>  SVCB 1 gw.<domain>.
                                               alpn="mcp,h2"
                                               key65400="...cap.json"
                                               key65401="<cap-sha256>"
@@ -39,7 +39,7 @@ _ip-reputation._mcp._agents.<domain>  SVCB 1 gw.<domain>.
 Switch to **terminal**. Run:
 
 ```bash
-$ dig +dnssec SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.workshop.highvelocitynetworking.com
+$ dig +dnssec SVCB ip-reputation.${SANDBOX_SLUG}.workshop.highvelocitynetworking.com
 ```
 
 Point at the **AD flag** in the output.
@@ -85,7 +85,7 @@ Verdict appears:
 ```
 agent> 185.220.101.45: MALICIOUS (confidence 0.95)
        sources: tor-exit-list, abuse.ch  tags: tor
-       audit:   discovered via SVCB at _ip-reputation._mcp._agents.${SLUG}...
+       audit:   discovered via SVCB at ip-reputation.${SLUG}...
                 DNSSEC: AD flag verified
                 cap-doc: JWS signed by k-ops-team-2026
                 invoked via: gw.${SLUG}.workshop.highvelocitynetworking.com

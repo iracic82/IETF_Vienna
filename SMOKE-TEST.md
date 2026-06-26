@@ -45,8 +45,8 @@ bash bootstrap.sh
 Expected:
 
 - [ ] `docker ps` shows 7 healthy services (event-hub, fastmcp-ip-reputation, agentgateway, dns-aid-mcp, coredns, strands-agent, viz)
-- [ ] `dig +short @127.0.0.1 SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}` returns a record with `gw.${SANDBOX_SLUG}...` target
-- [ ] `dig +dnssec @1.1.1.1 SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}` shows the AD flag
+- [ ] `dig +short @127.0.0.1 SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE}` returns a record with `gw.${SANDBOX_SLUG}...` target
+- [ ] `dig +dnssec @1.1.1.1 SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE}` shows the AD flag
 - [ ] `curl -s http://localhost:15000/ui` returns agentgateway admin UI HTML
 - [ ] `curl -s http://localhost:8080/` returns DNS-AID Explorer HTML
 - [ ] `curl -s http://localhost:8888/healthz` returns `{"ok": true}`
@@ -59,7 +59,7 @@ Cleanup:
 bash teardown.sh
 ```
 
-Expected: `docker ps` empty; `dig +short SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}` returns nothing (or NXDOMAIN).
+Expected: `docker ps` empty; `dig +short SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE}` returns nothing (or NXDOMAIN).
 
 ## IETF2 lab smoke test (target: 15 minutes — walk all 4 challenges)
 

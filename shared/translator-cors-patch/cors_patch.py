@@ -36,6 +36,26 @@ def _install_patches() -> None:
         # tooling). Do nothing.
         return
 
+    # ── dns-aid 0.25 flat FQDN format ──────────────────────────────────
+    # dns-aid 0.25.0 (2026-06-10) switched from the RFC-9460-style
+    # underscore-prefix naming (the literal form previously had
+    # `_<agent>` and `_<proto>` and `_agents` labels prepended to the
+    # zone) to a flat `<agent>.<zone>` name. Translator 0.3.0 still
+    # has the old template hard-coded in its discovery module — patch
+    # it to match what dns-aid actually publishes now, otherwise the
+    # translator polls a name that doesn't exist, sees svcb_absent,
+    # and the gateway has zero routes.
+    #
+    # Python's str.format silently ignores extra kwargs, so the
+    # translator's `DNS_AID_FQDN.format(name=..., protocol=..., domain=...)`
+    # call still works after we drop the `{protocol}` placeholder.
+    try:
+        from translator import discovery as _disc
+        _disc.DNS_AID_FQDN = "{name}.{domain}"
+    except ImportError:
+        # discovery module shape changed in a newer translator — skip.
+        pass
+
     # ── CORS on every Route ────────────────────────────────────────────
     orig_route = rb._route
 

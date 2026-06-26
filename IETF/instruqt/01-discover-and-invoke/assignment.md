@@ -57,7 +57,7 @@ DNS-AID is the IETF draft + reference implementation that makes this work:
 
 | Conventional setup | DNS-AID federation (this lab) |
 |---|---|
-| Endpoints hard-coded in client config or vendor registry | Endpoints **discovered at runtime via DNS** — SVCB record under `_<name>._<proto>._agents.<zone>` |
+| Endpoints hard-coded in client config or vendor registry | Endpoints **discovered at runtime via DNS** — SVCB record under `<name>.<zone>` |
 | Trust = "we both have the same API key" | **Layered trust signals**: DNSSEC for record integrity → DANE/TLSA for cert binding → JWS signature on cap doc → JWKS for key publication |
 | Capability metadata in a vendor SDK | **Cap document** (JSON, published independently): tools, schemas, version, `policy_uri`, `cap_sha256` |
 | Policy = "the client behaves" | **Policy enforced at multiple independent layers** (see below) |
@@ -205,7 +205,7 @@ echo "your subdomain = ${SANDBOX_SLUG}.${ZONE}"
 echo "DNSSEC chain   = root → .com → ccdesanity.com → ${ZONE} (validated)"
 
 # Empty for now — no records published yet
-dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+dig +noall +answer SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
 ```
 
 ## Watch the translator

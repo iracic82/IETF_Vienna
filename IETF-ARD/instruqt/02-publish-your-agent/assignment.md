@@ -45,7 +45,7 @@ One `dns-aid publish` command writes a SVCB + a few TXT records to
 Route 53. Three things will happen as a consequence:
 
 1. **The capability becomes discoverable** by any agent who knows
-   the federation's naming convention (`_<name>._<proto>._agents.<zone>`).
+   the federation's naming convention (`<name>.<zone>`).
 2. **The published cap_uri + policy_uri** point at the contract on S3.
    In Challenge 3 the agent will fetch both: cap doc to know what tools are
    available, policy doc for the SDK caller-side enforcement check.
@@ -219,12 +219,12 @@ discovery story.
 ### Check 1 — the SVCB itself is resolvable from a public resolver
 
 ```run
-dig +noall +answer SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+dig +noall +answer SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
 ```
 
 Expected output:
 ```
-_ip-reputation._mcp._agents.<slug>.lab.ccdesanity.com. 30 IN SVCB 1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000
+ip-reputation.<slug>.lab.ccdesanity.com. 30 IN SVCB 1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000
 ```
 
 What each field means:
@@ -241,7 +241,7 @@ What each field means:
 ### Check 2 — DNSSEC chain validates from root
 
 ```run
-dig +dnssec SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1 +noall +comments | grep flags
+dig +dnssec SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE} @1.1.1.1 +noall +comments | grep flags
 ```
 
 Expected output:
@@ -263,7 +263,7 @@ dns-aid demotes those to TXT records. This is where the cap doc URL and
 policy URL live.
 
 ```run
-dig +short TXT _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+dig +short TXT ip-reputation.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
 ```
 
 Expected output:

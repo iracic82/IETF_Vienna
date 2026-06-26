@@ -7,7 +7,7 @@ Companion `IETF2/` lab covers the orange and red rows.
 
 | DAWN requirement | Mechanism | Where in the demo |
 |---|---|---|
-| Predictable discovery entry point | DNS naming convention `_<name>._<proto>._agents.<domain>` | Scene 2 — `dig` against the SVCB record |
+| Predictable discovery entry point | DNS naming convention `<name>.<domain>` (dns-aid 0.25 flat form) | Scene 2 — `dig` against the SVCB record |
 | Decentralized publication | Each member runs `dns-aid publish` against their own zone | Pre-recorded (publication happened on bootstrap) |
 | Service / capability metadata | SVCB record (target, port, alpn) + cap doc (tools, schemas, policy) | Scene 2 — `dig` + `curl` of `cap.json` |
 | Authenticated discovery (record integrity) | DNSSEC chain-of-trust + `AD` flag verification | Scene 2 + Scene 3 step 3 |

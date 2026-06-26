@@ -10,7 +10,7 @@ source /opt/lab/lab.env 2>/dev/null || source /tmp/sandbox.env
 : "${SANDBOX_SLUG:?missing}"
 : "${ZONE:?missing}"
 
-TARGET="_ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE}."
+TARGET="ip-reputation.${SANDBOX_SLUG}.${ZONE}."
 echo "Target: ${TARGET}"
 
 for KIND in SVCB TXT; do

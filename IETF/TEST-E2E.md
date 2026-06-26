@@ -51,8 +51,8 @@ dns-aid publish \
     --sign --private-key "${SIGN_KEY}"
 
 # Verify via public DNS
-dig +short SVCB _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
-dig +short TXT  _ip-reputation._mcp._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1   # JWS chunked
+dig +short SVCB ip-reputation.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+dig +short TXT  ip-reputation.${SANDBOX_SLUG}.${ZONE} @1.1.1.1   # JWS chunked
 ```
 
 → check-host: SVCB resolves.
@@ -71,7 +71,7 @@ Expected output (terse):
 **Confidence:** 0.95
 **Sources:** ['tor-exit-list', 'abuse.ch']
 **Trust chain (audit):**
-- SVCB record: _ip-reputation._mcp._agents.<slug>.iracictechguru.com
+- SVCB record: ip-reputation.<slug>.iracictechguru.com
 - DNSSEC: not enabled in lab (parent zone unsigned)
 - JWS signature: verified — signer k-<slug>-2026
 - Invoked via: http://agentgateway:3000/ip-reputation/mcp
