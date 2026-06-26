@@ -1,0 +1,315 @@
+#!/bin/bash
+# Bring up the IETF lab stack on the host VM.
+#
+# Instruqt injects per-sandbox env vars. Their exact names depend on the
+# GCP project resource NAME in config.yml — Instruqt uppercases it and
+# replaces non-alphanumerics with underscores. We auto-detect via the
+# INSTRUQT_GCP_PROJECTS list so this script works regardless of the
+# project name.
+set -euo pipefail
+
+# ── 0. Install everything once. Idempotent. docker-28-3 already ships
+#       docker; we add git, awscli, jq, terraform, unzip, ca-certs.
+install_deps() {
+    # apt: git, jq, curl, ca-certificates, unzip, python3-venv (for dns-aid).
+    local PKGS="git jq curl ca-certificates unzip python3 python3-venv python3-pip dnsutils"
+    echo "[setup] ensuring apt deps: $PKGS"
+    apt-get update -qq || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PKGS \
+        || { echo "[setup] ERROR: apt install failed" >&2; exit 1; }
+
+    # AWS CLI v2 via official bundle.
+    if ! command -v aws >/dev/null 2>&1; then
+        echo "[setup] installing AWS CLI v2"
+        curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+        unzip -qo /tmp/awscli.zip -d /tmp
+        /tmp/aws/install -i /usr/local/aws-cli -b /usr/local/bin
+        rm -rf /tmp/aws /tmp/awscli.zip
+    fi
+
+    # Terraform via official release binary.
+    if ! command -v terraform >/dev/null 2>&1; then
+        echo "[setup] installing terraform 1.10.0"
+        local TF_VER=1.10.0
+        curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VER}/terraform_${TF_VER}_linux_amd64.zip" -o /tmp/tf.zip
+        unzip -qo /tmp/tf.zip -d /usr/local/bin
+        rm -f /tmp/tf.zip
+    fi
+
+    # uv — fast Python package manager from Astral. Used as the canonical
+    # installer for dns-aid (matches the dns-aid-core repo conventions).
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "[setup] installing uv"
+        curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh 2>&1 | tail -5 || true
+        # uv installer may also drop into ~/.local/bin — symlink for PATH coverage.
+        if [ ! -x /usr/local/bin/uv ] && [ -x "${HOME}/.local/bin/uv" ]; then
+            ln -sf "${HOME}/.local/bin/uv" /usr/local/bin/uv
+        fi
+    fi
+    export PATH="${HOME}/.local/bin:/usr/local/bin:${PATH}"
+
+    # dns-aid via `uv tool install` — official method per dns-aid-core repo.
+    # Lands the binary in ~/.local/bin/dns-aid (uv tool dir) which we add to PATH.
+    if ! command -v dns-aid >/dev/null 2>&1; then
+        echo "[setup] installing dns-aid[mcp,cli,route53] via uv tool install"
+        uv tool install 'dns-aid[mcp,cli,route53]' 2>&1 | tail -15
+    fi
+
+    # Patch dns-aid v0.13 in-place: Route53Backend honors ROUTE53_ZONE_ID env.
+    R53_FILE=$(ls /root/.local/share/uv/tools/dns-aid/lib/python*/site-packages/dns_aid/backends/route53.py 2>/dev/null | head -1)
+    if [ -n "${R53_FILE}" ] && ! grep -q 'ROUTE53_ZONE_ID' "${R53_FILE}"; then
+        echo "[setup] patching ${R53_FILE} to honor ROUTE53_ZONE_ID env"
+        sed -i 's|self._zone_id = zone_id$|self._zone_id = zone_id or os.environ.get("ROUTE53_ZONE_ID")|' "${R53_FILE}"
+    fi
+
+    # Patch dns-aid v0.13: chunk TXT record values > 255 chars into multiple
+    # quoted strings (Route 53 limit). Required for JWS-signed records
+    # whose token easily exceeds 255 chars. The helper MUST be inserted
+    # AFTER `from __future__ import annotations` — Python requires future
+    # imports to be the first statement in the file.
+    if [ -n "${R53_FILE}" ] && ! grep -q '_chunk255' "${R53_FILE}"; then
+        echo "[setup] patching ${R53_FILE} to chunk long TXT values (Route53 255-char limit)"
+        python3 - "${R53_FILE}" <<'PYPATCH'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+helper = '''
+
+def _chunk255(s):
+    """Split a string into <=255-char chunks and join as Route 53 multi-string TXT value."""
+    return " ".join('"' + s[i:i+255] + '"' for i in range(0, len(s), 255))
+'''
+if "_chunk255" not in src:
+    # Insert helper AFTER the `from __future__ import annotations` line so
+    # Python doesn't complain about future imports not being first.
+    marker = "from __future__ import annotations\n"
+    if marker in src:
+        src = src.replace(marker, marker + helper, 1)
+    else:
+        # Fallback: file has no future import, safe to prepend.
+        src = helper.lstrip() + src
+# Replace the single-quoted TXT value construction with chunked form.
+src = src.replace(
+    "{'Value': f'\"{v}\"'}",
+    "{'Value': _chunk255(v)}",
+)
+src = src.replace(
+    "'Value': f'\"{value}\"'",
+    "'Value': _chunk255(value)",
+)
+p.write_text(src)
+print("  applied _chunk255 patch")
+PYPATCH
+    fi
+
+    # Diagnostic dump — pipefail off so SIGPIPE on '| head' can't kill setup.
+    set +o pipefail
+    git --version || true
+    aws --version || true
+    jq --version || true
+    terraform version || true
+    docker --version || true
+    uv --version || true
+    echo "[setup] dns-aid binary: $(command -v dns-aid)"
+    dns-aid --version || echo "[setup] WARN: dns-aid --version exit $?"
+    set -o pipefail
+}
+install_deps
+
+# ── 1. Per-sandbox slug.
+SANDBOX_SLUG=$(echo -n "${INSTRUQT_PARTICIPANT_ID:-$(hostname)}" | sha1sum | cut -c1-8)
+echo "[setup] sandbox_slug=${SANDBOX_SLUG}"
+
+# ── 2. Discover GCP project + decode SA key.
+#     INSTRUQT_GCP_PROJECTS                              = e.g. "INFOBLOX_DEMO"
+#     INSTRUQT_GCP_PROJECT_<NAME>_PROJECT_ID             = ephemeral GCP project id
+#     INSTRUQT_GCP_PROJECT_<NAME>_SERVICE_ACCOUNT_KEY    = base64-encoded SA JSON
+GCP_NAME="${INSTRUQT_GCP_PROJECTS:?missing INSTRUQT_GCP_PROJECTS}"
+# Take the first project if comma-separated, uppercase, hyphens → underscores.
+GCP_KEY=$(echo "${GCP_NAME%%,*}" | tr '[:lower:]-' '[:upper:]_')
+
+PROJ_VAR="INSTRUQT_GCP_PROJECT_${GCP_KEY}_PROJECT_ID"
+SA_VAR="INSTRUQT_GCP_PROJECT_${GCP_KEY}_SERVICE_ACCOUNT_KEY"
+
+GOOGLE_CLOUD_PROJECT="${!PROJ_VAR:?missing ${PROJ_VAR}}"
+SA_KEY_B64="${!SA_VAR:?missing ${SA_VAR}}"
+
+# Decode base64 SA key to a real file; point GOOGLE_APPLICATION_CREDENTIALS at it.
+GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-sa.json
+echo "${SA_KEY_B64}" | base64 -d > "${GOOGLE_APPLICATION_CREDENTIALS}"
+chmod 600 "${GOOGLE_APPLICATION_CREDENTIALS}"
+
+export GOOGLE_CLOUD_PROJECT GOOGLE_APPLICATION_CREDENTIALS
+export VERTEX_LOCATION="${VERTEX_LOCATION:-us-east5}"
+
+echo "[setup] GCP project: ${GOOGLE_CLOUD_PROJECT}"
+echo "[setup] GCP SA key:  ${GOOGLE_APPLICATION_CREDENTIALS} ($(wc -c < ${GOOGLE_APPLICATION_CREDENTIALS}) bytes)"
+
+# ── 3. AWS + Route 53 credentials wiring.
+#
+# Security: AWS keys are persisted ONLY to /root/.aws/credentials
+# (chmod 600). They are NOT written to /root/.bashrc or /opt/lab/lab.env,
+# so a student running `env` or `set` will never see them. Boto3 (used
+# by dns-aid) reads ~/.aws/credentials automatically via the default
+# credential chain.
+#
+# We DO export them in this script's own env so that:
+#   (a) bootstrap.sh can pass them to docker compose via env interpolation
+#       (containers need them at runtime to call Route 53)
+#   (b) any tooling spawned by setup-host inherits them
+# These exports die when setup-host exits — student shell never sees them.
+export AWS_ACCESS_KEY_ID="${DEMO_AWS_ACCESS_KEY_ID:?missing Instruqt secret}"
+export AWS_SECRET_ACCESS_KEY="${DEMO_AWS_SECRET_ACCESS_KEY:?missing Instruqt secret}"
+export AWS_DEFAULT_REGION=us-east-1
+export HOSTED_ZONE_ID="${AI_DNS_Zone_ID:?missing Instruqt secret AI_DNS_Zone_ID}"
+
+# Persist credentials in the canonical boto3 location.
+mkdir -p /root/.aws
+cat > /root/.aws/credentials <<EOF
+[default]
+aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+EOF
+cat > /root/.aws/config <<EOF
+[default]
+region = us-east-1
+output = json
+EOF
+chmod 700 /root/.aws
+chmod 600 /root/.aws/credentials /root/.aws/config
+# ZONE is the DNSSEC-signed lab subzone delegated from ccdesanity.com.
+# Full chain validates from root: . → com → ccdesanity.com → lab.ccdesanity.com.
+# dig +dnssec on this zone returns the AD (Authenticated Data) flag.
+export ZONE="${ZONE:-lab.ccdesanity.com}"
+export SANDBOX_SLUG
+
+# dns-aid backend wiring — student-runnable publish/discover commands will
+# pick these up from env automatically.
+export DNS_AID_BACKEND=route53
+export ROUTE53_ZONE_ID="${HOSTED_ZONE_ID}"
+
+# External cap-doc base URL (public S3 bucket on a separate AWS account).
+# All learners pull the same cap docs from here — single source of truth,
+# no per-sandbox SSRF/TLS issues.
+export CAP_BASE_URL="https://ietf-vienna-cap-docs.s3.amazonaws.com"
+
+# Convenience symlink so the Editor tab (path: /root) shows the lab code.
+ln -sfn /opt/lab/IETF_Vienna /root/lab 2>/dev/null || true
+
+# Generate a per-sandbox EC P-256 signing key for JWS-signed cap docs.
+# dns-aid publish --sign --private-key <path> uses this to sign the
+# capability descriptor; consumers (discover) verify and surface the
+# signer kid in the audit trail.
+mkdir -p /opt/lab/keys
+SIGN_KEY="/opt/lab/keys/agent-signing.pem"
+SIGN_KID="k-${SANDBOX_SLUG}-2026"
+if [ ! -f "${SIGN_KEY}" ]; then
+    echo "[setup] generating EC P-256 signing key at ${SIGN_KEY} (kid=${SIGN_KID})"
+    openssl ecparam -name prime256v1 -genkey -noout -out "${SIGN_KEY}" 2>/dev/null
+    chmod 600 "${SIGN_KEY}"
+fi
+export SIGN_KEY SIGN_KID
+
+# ── 4. Persist env for check + solve scripts.
+echo "${SANDBOX_SLUG}" > /tmp/SANDBOX_SLUG
+
+# ── Persist env three ways (matches our other-tracks pattern):
+#    1. /opt/lab/lab.env  — single source of truth, sourceable from scripts
+#    2. /root/.bashrc      — auto-loaded into every interactive shell
+#    3. agent variable set — Instruqt-native, available to check scripts
+mkdir -p /opt/lab
+# /opt/lab/lab.env carries NON-SENSITIVE vars only. AWS credentials are
+# stored separately in /root/.aws/credentials (boto3 default chain).
+# `set` / `env` from a student shell will never reveal AWS keys.
+cat > /opt/lab/lab.env <<EOF
+export SANDBOX_SLUG="${SANDBOX_SLUG}"
+export ZONE="${ZONE}"
+export HOSTED_ZONE_ID="${HOSTED_ZONE_ID}"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION}"
+export GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT}"
+export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS}"
+export VERTEX_LOCATION="${VERTEX_LOCATION}"
+export DNS_AID_BACKEND="${DNS_AID_BACKEND}"
+export ROUTE53_ZONE_ID="${ROUTE53_ZONE_ID}"
+export CAP_BASE_URL="${CAP_BASE_URL}"
+export SIGN_KEY="${SIGN_KEY}"
+export SIGN_KID="${SIGN_KID}"
+export PATH="${HOME}/.local/bin:/usr/local/bin:\$PATH"
+EOF
+chmod 644 /opt/lab/lab.env   # readable — but contains no secrets
+
+# Auto-load into every new interactive shell (idempotent — skip if already added).
+if ! grep -q "source /opt/lab/lab.env" /root/.bashrc 2>/dev/null; then
+    {
+        echo ""
+        echo "# IETF_Vienna lab environment"
+        echo "[ -f /opt/lab/lab.env ] && source /opt/lab/lab.env"
+    } >> /root/.bashrc
+fi
+
+# Backward compat for any script still reading /tmp/sandbox.env.
+cp /opt/lab/lab.env /tmp/sandbox.env
+
+# Student user creation + sudoers + /root lockdown live in
+# track_scripts/setup-host (runs once at track start).
+
+# Instruqt agent variables — accessible to check scripts as ${VAR_NAME}.
+if command -v agent >/dev/null 2>&1; then
+    agent variable set SANDBOX_SLUG "${SANDBOX_SLUG}" || true
+    agent variable set ZONE "${ZONE}" || true
+    agent variable set GOOGLE_CLOUD_PROJECT "${GOOGLE_CLOUD_PROJECT}" || true
+fi
+
+echo "[setup] /opt/lab/lab.env written ($(wc -l < /opt/lab/lab.env) lines)"
+echo "[setup] /root/.bashrc updated to auto-source on new shells"
+
+# ── 5. Pull repo with lab code + Dockerfiles. Verbose so failures
+#       leave a clear trail. Always fresh-clone — cheaper than reconciling.
+LAB_REPO_URL="${LAB_REPO_URL:-https://github.com/iracic82/IETF_Vienna.git}"
+LAB_DIR="/opt/lab/IETF_Vienna"
+echo "[setup] cloning ${LAB_REPO_URL} → ${LAB_DIR}"
+rm -rf "${LAB_DIR}"
+mkdir -p /opt/lab
+if ! git clone --verbose --depth 1 "${LAB_REPO_URL}" "${LAB_DIR}" 2>&1; then
+    echo "[setup] ERROR: git clone failed (exit $?)" >&2
+    exit 1
+fi
+echo "[setup] clone done — top-level: $(ls "${LAB_DIR}" | tr '\n' ' ')"
+
+# Hand the cloned repo to student so they can `git pull` updates
+# in-place without root privileges. Also add the safe.directory entry
+# so git's ownership protection doesn't trip when student runs git here.
+if id student >/dev/null 2>&1; then
+    chown -R student:student "${LAB_DIR}"
+    sudo -u student git config --global --add safe.directory "${LAB_DIR}" || true
+fi
+
+EXPECTED="${LAB_DIR}/IETF-ARD/sandbox/bootstrap.sh"
+if [ ! -f "${EXPECTED}" ]; then
+    echo "[setup] ERROR: expected ${EXPECTED} but it's missing." >&2
+    echo "[setup] tree:" >&2
+    find "${LAB_DIR}" -maxdepth 3 -type f | head -30 >&2
+    exit 1
+fi
+echo "[setup] found ${EXPECTED}"
+
+# ── 7. Bring up the IETF stack. Use absolute path — relative resolution
+#       has been flaky (suspected Instruqt script-wrapper interaction).
+echo "[setup] invoking ${EXPECTED}"
+bash "${EXPECTED}"
+
+# ── 8. Wait for services.
+for _ in $(seq 1 30); do
+    if curl -sf http://localhost:8888/healthz >/dev/null 2>&1; then
+        echo "[setup] event-hub healthy"
+        break
+    fi
+    sleep 2
+done
+
+echo "[setup] IETF sandbox ready."
+echo "  Subdomain:  ${SANDBOX_SLUG}.${ZONE}"
+echo "  Gateway:    http://localhost:3000  (gw.${SANDBOX_SLUG}.${ZONE})"
+echo "  Visualizer: http://localhost:8080"
+echo "  Run:        docker exec -it strands-agent python /app/agent.py"
+exit 0

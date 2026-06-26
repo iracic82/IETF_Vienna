@@ -1,0 +1,55 @@
+#!/bin/bash
+# Track-level cleanup. Fires when the entire track ends (student
+# completes or abandons it). Guarantees all DNS-AID records under
+# this learner's per-sandbox subdomain are removed from Route 53,
+# regardless of what they published.
+#
+# This is critical because:
+#   - per-challenge cleanups only delete the records for that specific
+#     agent name they know about
+#   - students may publish extra capabilities (the optional second
+#     dns-aid publish in C2 e.g. url-scanner)
+#   - track timeout mid-challenge skips per-challenge cleanups
+#
+# Idempotent: missing records → no-op, missing zone → log and skip.
+set -uo pipefail
+
+source /opt/lab/lab.env 2>/dev/null || source /tmp/sandbox.env 2>/dev/null || {
+    echo "[track-cleanup] no lab env present — nothing to clean"
+    exit 0
+}
+
+: "${HOSTED_ZONE_ID:?missing}"
+: "${SANDBOX_SLUG:?missing}"
+: "${ZONE:?missing}"
+
+SUBDOMAIN_SUFFIX=".${SANDBOX_SLUG}.${ZONE}."
+echo "[track-cleanup] removing all records under *${SUBDOMAIN_SUFFIX}"
+
+# 1. List every record under this sandbox's subdomain.
+RECORDS=$(aws route53 list-resource-record-sets \
+    --hosted-zone-id "${HOSTED_ZONE_ID}" \
+    --query "ResourceRecordSets[?ends_with(Name, \`${SUBDOMAIN_SUFFIX}\`)]" \
+    --output json 2>/dev/null || echo "[]")
+
+COUNT=$(echo "${RECORDS}" | jq 'length')
+if [ "${COUNT:-0}" = "0" ]; then
+    echo "[track-cleanup] no records found — nothing to do"
+    exit 0
+fi
+echo "[track-cleanup] found ${COUNT} record(s) to delete"
+
+# 2. Build a single ChangeBatch with one DELETE per record. Submit
+#    one call (Route53 max changes per call is 1000, plenty here).
+CHANGES=$(echo "${RECORDS}" | jq '[.[] | {Action: "DELETE", ResourceRecordSet: .}]')
+BATCH=$(jq -n --argjson changes "${CHANGES}" \
+    '{Comment: "IETF lab track cleanup", Changes: $changes}')
+
+aws route53 change-resource-record-sets \
+    --hosted-zone-id "${HOSTED_ZONE_ID}" \
+    --change-batch "${BATCH}" \
+    --query 'ChangeInfo.{Status:Status,Id:Id}' --output table 2>&1 | sed 's/^/  /' || \
+    echo "[track-cleanup] WARN: delete batch failed (probably already gone)"
+
+echo "[track-cleanup] done"
+exit 0

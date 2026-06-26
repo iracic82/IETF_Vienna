@@ -1,0 +1,7 @@
+#!/bin/bash
+# No-op on per-challenge transition. C3 invokes the agent that was
+# published in C2 and needs the DNS records to still be present.
+#
+# Definitive cleanup of all per-sandbox DNS records happens in
+# track_scripts/cleanup-host when the entire track ends.
+exit 0

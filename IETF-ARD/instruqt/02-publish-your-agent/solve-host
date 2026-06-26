@@ -1,0 +1,24 @@
+#!/bin/bash
+# Auto-publish — matches the working command in the assignment so
+# `instruqt track test` can drive the lab end-to-end.
+#
+# Note: no --sign in this lab. Route 53 demotes cap_uri/policy_uri/JWS
+# to TXT, and the JWS token exceeds Route 53's 255-char per-string TXT
+# limit. dns-aid v0.21 doesn't auto-chunk TXT yet — see assignment.md.
+set -uo pipefail
+source /opt/lab/lab.env 2>/dev/null || source /tmp/sandbox.env
+
+dns-aid publish \
+    --name ip-reputation \
+    --domain "${SANDBOX_SLUG}.${ZONE}" \
+    --protocol mcp \
+    --endpoint fastmcp-ip-reputation \
+    --port 3000 \
+    --transport streamable-http \
+    --capability ip-reputation \
+    --version 1.0.0 \
+    --description "Threat-intel federation: IP reputation lookup" \
+    --cap-uri    "${CAP_BASE_URL}/ip-reputation/v1.json" \
+    --policy-uri "${CAP_BASE_URL}/ip-reputation/policy.json" \
+    --ttl 30 || true
+exit 0

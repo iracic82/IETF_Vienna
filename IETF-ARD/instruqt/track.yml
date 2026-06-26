@@ -1,0 +1,38 @@
+slug: dns-aid-ard
+id: np8f4lcds10v
+title: 'DNS-AID + ARD: Federated AI Agent Discovery'
+teaser: |
+  Watch an AI assistant discover, verify, and invoke a remote MCP capability using DNS-AID + agentgateway.
+description: |-
+  This 15-minute lab demonstrates DNS-AID, the IETF draft for AI agent
+  discovery via DNS SVCB records. You'll see a Strands AI agent discover
+  the federation's `ip-reputation` capability via DNS-AID, verify
+  authenticity (DNSSEC + JWS-signed cap doc), and invoke it through
+  agentgateway — the runtime enforcement layer.
+
+  Companion lab: DNS-AID Workshop (`dns-aid-workshop`) — 90-min
+  AI-supply-chain incident response.
+icon: https://storage.googleapis.com/instruqt-frontend/img/tracks/default.png
+tags:
+- threat-intel
+- dnssec
+- ai
+- dns
+- agentgateway
+- dns-aid
+- mcp
+- agents
+owner: infoblox
+developers:
+- iracic@infoblox.com
+- zmiszkiewicz@infoblox.com
+idle_timeout: 8400
+timelimit: 8400
+lab_config:
+  sidebar_enabled: true
+  feedback_recap_enabled: true
+  feedback_tab_enabled: false
+  loadingMessages: true
+  hideStopButton: false
+checksum: "8604506461822127819"
+enhanced_loading: false

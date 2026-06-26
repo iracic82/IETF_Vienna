@@ -1,0 +1,20 @@
+#!/bin/bash
+# Pass when the lab stack is running.
+set -uo pipefail
+
+if ! curl -sf http://localhost:8888/healthz >/dev/null 2>&1; then
+    echo "ℹ event-hub not healthy yet — wait a few seconds and retry"
+    exit 1
+fi
+
+NEEDED="agentgateway fastmcp-ip-reputation strands-agent coredns viz event-hub dns-aid-mcp"
+MISSING=""
+for c in ${NEEDED}; do
+    docker ps --format '{{.Names}}' | grep -q "^${c}$" || MISSING="${MISSING} ${c}"
+done
+if [ -n "${MISSING}" ]; then
+    echo "ℹ containers not yet up:${MISSING}"
+    exit 1
+fi
+echo "✓ lab stack healthy"
+exit 0

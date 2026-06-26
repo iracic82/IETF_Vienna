@@ -1,0 +1,25 @@
+version: "3"
+virtualmachines:
+- name: host
+  image: instruqt/docker-28-3
+  shell: /bin/bash
+  machine_type: n1-standard-2
+gcp_projects:
+- name: infoblox-demo
+  services:
+  - compute.googleapis.com
+  - cloudresourcemanager.googleapis.com
+  - cloudasset.googleapis.com
+  - cloudapis.googleapis.com
+  - dns.googleapis.com
+  - aiplatform.googleapis.com
+  regions:
+  - europe-west3
+  - europe-west2
+  - europe-north2
+  roles:
+  - roles/aiplatform.admin
+secrets:
+- name: DEMO_AWS_ACCESS_KEY_ID
+- name: DEMO_AWS_SECRET_ACCESS_KEY
+- name: AI_DNS_Zone_ID
