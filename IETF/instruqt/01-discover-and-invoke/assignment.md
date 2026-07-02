@@ -2,7 +2,7 @@
 slug: discover-and-invoke
 id: mpmqykxvsmtx
 type: challenge
-title: 1. Tour the lab — DNS as the control plane
+title: 1. Tour the lab
 teaser: Inspect a federation runtime that has zero routes until DNS publishes one.
   Then watch how it discovers.
 notes:
