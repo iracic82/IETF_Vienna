@@ -119,8 +119,8 @@ export const IETF_FLOW: Flow = {
       detail: {
         title: "Step 3 — dig +dnssec SVCB via CoreDNS → Route 53",
         rightPaneTabs: ["request", "response", "trust"],
-        sampleRequest: 'dig +dnssec SVCB _ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com',
-        sampleResponse: ';; flags: qr rd ra ad ◄── DNSSEC validated\n_ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com. 30 IN SVCB\n  1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000\n\nTXT companion records (Route 53 demotes custom SvcParams to TXT):\n  "dnsaid_key65400=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json"\n  "dnsaid_key65403=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json"',
+        sampleRequest: 'dig +dnssec SVCB ip-reputation.${SLUG}.lab.ccdesanity.com',
+        sampleResponse: ';; flags: qr rd ra ad ◄── DNSSEC validated\nip-reputation.${SLUG}.lab.ccdesanity.com. 30 IN SVCB\n  1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000\n\nTXT companion records (Route 53 demotes custom SvcParams to TXT):\n  "dnsaid_key65400=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json"\n  "dnsaid_key65403=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json"',
         sampleTrust: '. → com → ccdesanity.com → lab.ccdesanity.com\n✓ DS at .com TLD (KSK 39752)\n✓ DS at ccdesanity.com  (KSK 9396)\n✓ DNSKEY + RRSIG verified\n✓ AD flag returned by Cloudflare 1.1.1.1',
       },
     },
@@ -147,7 +147,7 @@ export const IETF_FLOW: Flow = {
       detail: {
         title: "Step 6 — Translator polls Route 53, pushes Route/Backend via xDS",
         rightPaneTabs: ["request", "response"],
-        sampleRequest: 'Translator poll (every 5s):\n  dig SVCB _ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com @coredns\n\nResult: SVCB record present (or absent → triggers route removal)',
+        sampleRequest: 'Translator poll (every 5s):\n  dig SVCB ip-reputation.${SLUG}.lab.ccdesanity.com @coredns\n\nResult: SVCB record present (or absent → triggers route removal)',
         sampleResponse: 'Envoy v3 ADS DeltaDiscoveryResponse:\n  Bind     (port 3000)\n  Listener (dnsaid-discovered)\n  Route    (/ip-reputation/mcp exact → MCP backend)\n  Backend  (mcp wrapper)\n  Backend  (static → fastmcp-ip-reputation:3000)\n\nGateway materialises the new route in <1s after the push.',
       },
     },
@@ -190,7 +190,7 @@ export const IETF_FLOW: Flow = {
       detail: {
         title: "Step 10 — Agent synthesizes answer with honest audit trail",
         rightPaneTabs: ["response"],
-        sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Sources:** tor-exit-list, abuse.ch\n       **Trust chain (audit):**\n       - SVCB record: _ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com\n       - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)\n       - JWS signature: not signed (cap doc unsigned)\n       - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/...v1.json (fetched, agent=ip-reputation, version=1.0.0)\n       - Policy: https://ietf-vienna-cap-docs.s3.amazonaws.com/...policy.json\n       - Invoked via: http://agentgateway:3000/ip-reputation/mcp',
+        sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Sources:** tor-exit-list, abuse.ch\n       **Trust chain (audit):**\n       - SVCB record: ip-reputation.${SLUG}.lab.ccdesanity.com\n       - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)\n       - JWS signature: not signed (cap doc unsigned)\n       - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/...v1.json (fetched, agent=ip-reputation, version=1.0.0)\n       - Policy: https://ietf-vienna-cap-docs.s3.amazonaws.com/...policy.json\n       - Invoked via: http://agentgateway:3000/ip-reputation/mcp',
       },
     },
   ],
@@ -231,8 +231,8 @@ export const IETF_DENIED_FLOW: Flow = {
       detail: {
         title: "Step 3 — DNS resolution (succeeds — discovery isn't gated by policy)",
         rightPaneTabs: ["request", "response"],
-        sampleRequest: 'dig +dnssec SVCB _ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com',
-        sampleResponse: ';; flags: qr rd ra ad ◄── DNSSEC validated\n_ip-reputation._mcp._agents.${SLUG}.lab.ccdesanity.com. 30 IN SVCB\n  1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000\n\nNote: discovery succeeds regardless of policy. The strict policy only\nfires at Layer 1 (SDK caller guard) when the agent is about to invoke.',
+        sampleRequest: 'dig +dnssec SVCB ip-reputation.${SLUG}.lab.ccdesanity.com',
+        sampleResponse: ';; flags: qr rd ra ad ◄── DNSSEC validated\nip-reputation.${SLUG}.lab.ccdesanity.com. 30 IN SVCB\n  1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000\n\nNote: discovery succeeds regardless of policy. The strict policy only\nfires at Layer 1 (SDK caller guard) when the agent is about to invoke.',
       },
     },
     {
@@ -292,7 +292,7 @@ export const IETF_LAYERS_OVERVIEW: Flow = {
       detail: {
         title: "Layer 0 — DNS resolver enforcement (bind-aid RPZ)",
         rightPaneTabs: ["request", "trust"],
-        sampleRequest: '# Compiled from the same policy.json into RPZ rules:\n_ip-reputation._mcp._agents.<zone>  CNAME  rpz-passthru.   ; allow\n_billing._mcp._agents.<zone>        CNAME  .              ; NXDOMAIN for non-permitted callers\n\nA DNSSEC-aware resolver with bind-aid loaded answers NXDOMAIN to\ncallers whose source IP / domain doesn\'t match the policy — the\nrequest never even leaves the caller\'s network namespace.',
+        sampleRequest: '# Compiled from the same policy.json into RPZ rules:\nip-reputation.<zone>  CNAME  rpz-passthru.  ; allow\nbilling.<zone>        CNAME  .              ; NXDOMAIN for non-permitted callers\n\nA DNSSEC-aware resolver with bind-aid loaded answers NXDOMAIN to\ncallers whose source IP / domain doesn\'t match the policy — the\nrequest never even leaves the caller\'s network namespace.',
         sampleTrust: 'IN THIS LAB: NOT EXERCISED.\nCoreDNS here is a plain DNSSEC-validating forwarder; no RPZ loaded.\n\nIETF2 (90-min advanced workshop, planned): BIND + bind-aid integration\nthat compiles policy.json → RPZ → resolver refuses to even reveal\nwhere the target lives for unauthorised callers.',
       },
     },
