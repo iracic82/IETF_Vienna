@@ -373,7 +373,7 @@ And the agent's audit chain now surfaces the new 0.26 fields:
 
 ```
 agent> Federation catalog (8 agents, discovered via ARD):
-        
+
        - ip-reputation
          trust_manifest.identity: spiffe://lab.ccdesanity.com/agents/ip-reputation
          attestations: [publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA]
@@ -399,9 +399,10 @@ and see the raw catalog structure:
 
 ```run
 echo "=== ARD federation catalog ==="
-curl -s "${ARD_GLOBAL_CATALOG}" | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+curl -s "${ARD_GLOBAL_CATALOG}" > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"{len(d['entries'])} agents published by {d['host']['displayName']}")
 PY
 
@@ -409,10 +410,10 @@ echo
 echo "=== POST /search 'check if IP address is malicious' ==="
 curl -s -X POST "${ARD_API_BASE}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"text":"check if IP address is malicious"}}' \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+    -d '{"query":{"text":"check if IP address is malicious"}}' > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"matched: {d['totalCount']} agents (ranked by token-overlap score)")
 for r in d['results'][:3]:
     print(f"\n  score={r['score']:5.1f}  {r['displayName']}")
@@ -448,10 +449,10 @@ namespace:
 ```run
 curl -s -X POST "${ARD_API_BASE}/students/${SANDBOX_SLUG}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"text":"ip reputation"}}' \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+    -d '{"query":{"text":"ip reputation"}}' > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"YOUR catalog matched: {d['totalCount']} agents")
 top = d['results'][0]
 print(f"top: {top['identifier']}")
@@ -466,10 +467,10 @@ field path (ARD §7.1 dot-resolution):
 ```run
 curl -s -X POST "${ARD_API_BASE}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"text":"intel","filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+    -d '{"query":{"text":"intel","filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"{d['totalCount']} threat-intel agents with SOC2-Type2 attestation:")
 for r in d['results']:
     print(f"  {r['displayName']:20}  ({r['identifier']})")

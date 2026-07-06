@@ -323,10 +323,10 @@ no separate tool. Watch it resolve the pointer and dereference each
 entry's agent card:
 
 ```run
-dns-aid discover "${SANDBOX_SLUG}.${ZONE}" --use-http-index --json \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+dns-aid discover "${SANDBOX_SLUG}.${ZONE}" --use-http-index --json > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 agents = d.get('agents') if isinstance(d, dict) else d
 print(f"discovered {len(agents)} agents via ARD:")
 for a in agents[:3]:
@@ -367,10 +367,10 @@ echo
 echo "=== ARD path (catalog entry, slug-namespaced) ==="
 curl -s -X POST "${ARD_API_BASE}/students/${SANDBOX_SLUG}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"text":"ip reputation"}}' \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+    -d '{"query":{"text":"ip reputation"}}' > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"matched {d['totalCount']} agents")
 top = d['results'][0]
 print(f"top match: {top['identifier']}")
@@ -401,10 +401,10 @@ PY
 ```run
 curl -s -X POST "${ARD_API_BASE}/students/${SANDBOX_SLUG}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+    -d '{"query":{"filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"agents with a SOC2-Type2 attestation: {d['totalCount']}")
 for r in d['results']:
     print(f"  - {r['displayName']:20}  ({r['identifier']})")

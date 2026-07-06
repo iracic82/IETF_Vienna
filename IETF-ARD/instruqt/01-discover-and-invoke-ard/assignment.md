@@ -291,10 +291,10 @@ matching subset ranked by relevance:
 ```run
 curl -s -X POST "${ARD_API_BASE}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"text":"ip reputation"}}' \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+    -d '{"query":{"text":"ip reputation"}}' > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"matched {d['totalCount']} agents:")
 for r in d['results'][:4]:
     print(f"  score={r['score']:5.1f}  {r['identifier']:55} — {r['displayName']}")
@@ -307,10 +307,10 @@ including nested `trustManifest.attestations.type`:
 ```run
 curl -s -X POST "${ARD_API_BASE}/search" \
     -H 'content-type: application/json' \
-    -d '{"query":{"filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+    -d '{"query":{"filter":{"trustManifest.attestations.type":["SOC2-Type2"]}}}' > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"agents with a SOC2-Type2 attestation: {d['totalCount']}")
 for r in d['results']:
     print(f"  {r['displayName']}")
@@ -328,10 +328,10 @@ No persistence, no S3 write — derived on every request from the
 canonical global manifest.
 
 ```run
-curl -s "${ARD_API_BASE}/students/${SANDBOX_SLUG}/catalog" \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+curl -s "${ARD_API_BASE}/students/${SANDBOX_SLUG}/catalog" > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"host: {d['host']['displayName']}")
 print(f"      identifier = {d['host']['identifier']}")
 print(f"\n{len(d['entries'])} agents under YOUR sandbox's URN namespace:")
@@ -345,10 +345,10 @@ PY
 Compare with the GLOBAL catalog — same entries, different ownership:
 
 ```run
-curl -s "${ARD_GLOBAL_CATALOG}" \
-  | python3 <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+curl -s "${ARD_GLOBAL_CATALOG}" > /tmp/ard-response.json
+python3 <<'PY'
+import json
+d = json.load(open("/tmp/ard-response.json"))
 print(f"host: {d['host']['displayName']}")
 print(f"      identifier = {d['host']['identifier']}")
 print(f"\nfirst 3 entries in GLOBAL catalog:")
