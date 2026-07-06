@@ -45,7 +45,7 @@ export type Flow = {
 };
 
 // ──────────────────────────────────────────────────────────────────────
-// IETF flow: ip-reputation discovery + invocation (10 steps)
+// IETF flow: ip-reputation discovery + invocation (13 steps)
 //
 // Reflects the current architecture:
 //   - Zone: lab.ccdesanity.com (DNSSEC chain validates from root)
@@ -212,7 +212,7 @@ export const IETF_FLOW: Flow = {
       detail: {
         title: "Step 11 — Agent synthesizes answer with honest audit trail",
         rightPaneTabs: ["response"],
-        sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Sources:** tor-exit-list, abuse.ch\n       **Trust chain (audit):**\n       - SVCB record: ip-reputation.${SLUG}.lab.ccdesanity.com\n       - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)\n       - JWS signature: not signed (cap doc unsigned)\n       - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/...v1.json (fetched, agent=ip-reputation, version=1.0.0)\n       - Policy: https://ietf-vienna-cap-docs.s3.amazonaws.com/...policy.json\n       - Invoked via: http://agentgateway:3000/ip-reputation/mcp',
+        sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Sources:** tor-exit-list, abuse.ch\n       **Trust chain (audit):**\n       - SVCB record: ip-reputation.${SLUG}.lab.ccdesanity.com\n       - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)\n       - JWS signature: not signed (cap doc unsigned)\n       - SDK guard: ALLOWED by SDK caller guard (Layer 1)\n       - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/...v1.json (fetched, agent=ip-reputation, version=1.0.0)\n       - Policy: https://ietf-vienna-cap-docs.s3.amazonaws.com/...policy.json\n       - Invoked via: http://agentgateway:3000/ip-reputation/mcp',
       },
     },
   ],
@@ -220,7 +220,7 @@ export const IETF_FLOW: Flow = {
 
 // ──────────────────────────────────────────────────────────────────────
 // IETF denied flow: same architecture, but POLICY_OVERRIDE points the
-// SDK at policy-strict.json so step 7b denies and the call never leaves
+// SDK at policy-strict.json so step 5 denies and the call never leaves
 // the agent. Mirrors C3 Bonus 3 — students can switch between this and
 // the happy path to see ALLOWED vs DENIED side-by-side.
 // ──────────────────────────────────────────────────────────────────────
@@ -262,7 +262,7 @@ export const IETF_DENIED_FLOW: Flow = {
       detail: {
         title: "Step 4 — Cap doc fetched (still v1.json, not the strict policy)",
         rightPaneTabs: ["request"],
-        sampleRequest: 'GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json\n\nThis still returns the cap doc envelope. The STRICT policy lives at a\ndifferent S3 URL (policy-strict.json) — fetched only by the SDK guard\nin step 7b, because POLICY_OVERRIDE is set on the agent process.',
+        sampleRequest: 'GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json\n\nThis still returns the cap doc envelope. The STRICT policy lives at a\ndifferent S3 URL (policy-strict.json) — fetched only by the SDK guard\nin step 5, because POLICY_OVERRIDE is set on the agent process.',
       },
     },
     {
