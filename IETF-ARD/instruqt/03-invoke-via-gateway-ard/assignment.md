@@ -327,7 +327,24 @@ done
 
 Expected output (note `ad` flag set on every resolver):
 
-![Resolver comparison — AD flag everywhere](https://raw.githubusercontent.com/iracic82/IETF_Vienna/main/IETF/instruqt/assets/c3/resolver-compare.png)
+```
+1.1.1.1    ip-reputation.<slug>.lab.ccdesanity.com. 30 IN SVCB 1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000
+9.9.9.9    ip-reputation.<slug>.lab.ccdesanity.com. 30 IN SVCB 1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000
+8.8.8.8    ip-reputation.<slug>.lab.ccdesanity.com. 30 IN SVCB 1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000
+1.1.1.1    ;; flags: qr rd ra ad; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 1
+9.9.9.9    ;; flags: qr rd ra ad; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 1
+8.8.8.8    ;; flags: qr rd ra ad; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 1
+```
+
+Two things to notice:
+
+- **`ad` in every `flags:` line** — all three public resolvers
+  independently validated the DNSSEC chain (root → `.com` →
+  `ccdesanity.com` → your zone). No resolver trusts the record blindly.
+- **`ANSWER: 2`** on the `+dnssec` query — the SVCB record **plus its
+  RRSIG signature**. The signature travels alongside the record, which
+  is what lets each resolver verify it. (The first loop, without
+  `+dnssec`, shows just the one SVCB line per resolver.)
 
 This is the cryptographic chain working — same record, same signature,
 validated by three independent resolvers.
@@ -359,41 +376,49 @@ docker exec -i strands-agent python /app/agent.py <<< \
   "Use the ARD catalog to list every agent this federation publishes, and for each show its trust_manifest.identity + attestation types."
 ```
 
-Watch the tool call. In the terminal you'll see:
+Watch the tool call. Your terminal shows dns-aid's full structlog
+debug trace — one line per catalog fetch and card dereference. The
+important lines (simplified):
 
 ```
-  [tool] discover_agents_via_dns({'domain': '<slug>.lab.ccdesanity.com', 'use_http_index': True})
-  [cap-fetch] resolving _catalog._agents.<slug>.lab.ccdesanity.com
-  [cap-fetch] catalog pointer → https://ietf-vienna-cap-docs.s3.amazonaws.com/.well-known/ai-catalog.json
-  [cap-fetch] 8 catalog entries; dereferencing each entry's mcp-server-card.json
-  [result] 8 agents, capability_source="agent_card", endpoint_source="http_index_fallback", trust_manifest populated
+  [tool]  discover_agents_via_dns({'use_http_index': True, 'domain': '<slug>.lab.ccdesanity.com'})
+  [info]  catalog_pointer.resolved  label=_catalog._agents  url=…/.well-known/ai-catalog.json
+  [info]  http_index.ard_catalog_detected  entry_count=8  spec_version=1.0
+  [debug] Cap document fetched successfully  cap_uri=…/ip-reputation/mcp-server-card.json  capabilities_count=0
+  [debug] ard_card.applied  agent=ip-reputation  protocol=mcp  source=ard_card
+  … (×8 agents) …
+  [info]  Discovery complete  agents_found=8  use_http_index=True
 ```
 
-And the agent's audit chain now surfaces the new 0.26 fields:
+Then the agent answers **in natural language**. It's a Vertex Gemini
+model, so the exact wording and layout vary run to run — what's
+guaranteed is the content: 8 agents, each with its SPIFFE identity
+and its 4 attestations, all pulled from the ARD catalog's
+`trust_manifest`. A representative answer:
 
 ```
-agent> Federation catalog (8 agents, discovered via ARD):
+agent> The catalog lists 8 agents. Here are their identities and attestations:
 
-       - ip-reputation
-         trust_manifest.identity: spiffe://lab.ccdesanity.com/agents/ip-reputation
-         attestations: [publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA]
-         capability_source: agent_card            (card dereferenced)
-         endpoint_source:   http_index_fallback   (catalog-only agent, no per-agent SVCB)
-       - asn-info
-         trust_manifest.identity: spiffe://lab.ccdesanity.com/agents/asn-info
-         attestations: [publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA]
-       ...
+- spiffe://lab.ccdesanity.com/agents/asn-info:       publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA
+- spiffe://lab.ccdesanity.com/agents/cve-lookup:     publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA
+- spiffe://lab.ccdesanity.com/agents/ip-reputation:  publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA
+  … (5 more) …
 ```
 
-> **Why `agent_card` / `http_index_fallback` and not `ard_card`?**
-> These 8 agents live only in the ARD catalog and their reference
-> cards are metadata-only (no service URL). dns-aid took capabilities
-> from the dereferenced card (`agent_card`) but had no real endpoint
-> to bind, so it fell back to the catalog-derived host
-> (`http_index_fallback`). You'd see `endpoint_source: ard_card` only
-> if a card advertised a concrete, reachable endpoint. The
-> `trust_manifest` — SPIFFE identity + 4 attestations — is the real
-> win here, and it came through the ARD path complete.
+> **You'll see `ard_card.applied source=ard_card` in the debug, yet
+> the tool result tags `endpoint_source="http_index_fallback"` — why?**
+> Two different things. `ard_card.applied` means dns-aid *dereferenced*
+> each entry's `mcp-server-card.json` and applied it. But these 8
+> agents are **catalog-only** (no authoritative per-agent DNS SVCB)
+> and their reference cards are metadata-only (`capabilities_count=0`,
+> no service URL). So the capability came from the card
+> (`capability_source=agent_card`), but there was no real endpoint to
+> bind — dns-aid fell back to the catalog-derived host
+> (`endpoint_source=http_index_fallback`). You'd get
+> `endpoint_source=ard_card` only if a card advertised a concrete,
+> reachable endpoint. The `trust_manifest` — SPIFFE identity + 4
+> attestations — is the real win here, and it came through the ARD
+> path complete.
 
 > **Same MCP tool, different transport.** The agent never learned a
 > new function call. It set one flag (`use_http_index=True`), and
