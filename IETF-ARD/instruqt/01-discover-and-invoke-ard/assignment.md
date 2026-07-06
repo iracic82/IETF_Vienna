@@ -241,6 +241,22 @@ discovery planes:
 | **DNS-AID** (SVCB) | `<agent>.<zone>` records in Route 53 | One record per agent. SVCB target + alpn + port + cap_uri/policy_uri in TXT companions. Used in C2/C3 as the primary path. |
 | **ARD** (HTTPS) | `${ARD_GLOBAL_CATALOG}` (static) + `${ARD_API_BASE}/search` (Lambda) | One JSON document listing ALL 8 agents with full `trustManifest` (DID/SPIFFE identity, attestations, provenance), spec-correct `publisher` object, top-level `version`/`updatedAt`. Searchable via ARD §7.1 `{query: {text, filter}}` model. |
 
+> **dns-aid 0.26.2** ships native support for the ARD path INSIDE the
+> existing `discover_agents_via_dns` MCP tool. The agent doesn't learn
+> a new function call — it just passes `use_http_index=True`. dns-aid
+> then resolves the ARD catalog pointer over DNS (an SVCB record at
+> `_catalog._agents.<domain>`, DNS-AID draft-02 §3.2 + ARD §6.1),
+> fetches `ai-catalog.json`, dereferences each entry's agent card, and
+> returns agents with a rich `trust_manifest` field.
+>
+> In this Challenge you'll only browse the catalog by HTTPS curl to
+> see the raw envelope. **In C2 you'll `dns-aid index publish-catalog`
+> to register your sandbox's ARD pointer** — that unlocks the native
+> path. **In C3 the model will discover ARD-sourced agents through
+> the same MCP tool** and surface `capability_source: ard_catalog`,
+> `endpoint_source: ard_card`, and the full `trust_manifest` in its
+> audit chain.
+
 Curl the global ARD catalog so you can see what an enterprise's
 federation manifest actually looks like — 8 agents, full
 spec-correct shape:
