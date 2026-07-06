@@ -289,14 +289,73 @@ before letting the agent invoke `lookup_ip`.
 > the previous step to skip that window — production federations
 > instead design publish cadence around it.
 
+## Register your ARD catalog pointer (dns-aid 0.26.2)
+
+**dns-aid 0.26.2** ships an `index publish-catalog` subcommand that
+writes two SVCB pointer records — `_catalog._agents.<domain>` (ARD
+§6.1) and `_index._agents.<domain>` (DNS-AID draft-02 §3.2) — telling
+any client where your ARD `ai-catalog.json` lives. Once published, the
+existing `discover_agents_via_dns` MCP tool auto-detects it and pulls
+the catalog natively — no separate ARD client, no code change on the
+agent side. This is what makes C3's model discover ARD-sourced agents
+via the same tool it already uses for DNS-AID.
+
+```run
+dns-aid index publish-catalog \
+    "${SANDBOX_SLUG}.${ZONE}" \
+    ietf-vienna-cap-docs.s3.amazonaws.com \
+    --ttl 30
+```
+
+That points at the S3 bucket which already serves the global ARD
+catalog at `/.well-known/ai-catalog.json`. Confirm the two SVCB
+records landed:
+
+```run
+dig +short SVCB _catalog._agents.${SANDBOX_SLUG}.${ZONE} @1.1.1.1
+dig +short SVCB _index._agents.${SANDBOX_SLUG}.${ZONE}   @1.1.1.1
+```
+
+Both should return `1 ietf-vienna-cap-docs.s3.amazonaws.com. alpn="h2" port="443"`.
+
+Now `dns-aid discover` finds ARD-sourced agents natively — no curl,
+no separate tool. Watch it resolve the pointer and dereference each
+entry's agent card:
+
+```run
+dns-aid discover "${SANDBOX_SLUG}.${ZONE}" --use-http-index --json \
+  | python3 <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+agents = d.get('agents') if isinstance(d, dict) else d
+print(f"discovered {len(agents)} agents via ARD:")
+for a in agents[:3]:
+    print(f"\n  name:              {a.get('name')}")
+    print(f"  endpoint:          {a.get('endpoint')}")
+    print(f"  capability_source: {a.get('capability_source')}   ← 'ard_catalog' when from ARD")
+    print(f"  endpoint_source:   {a.get('endpoint_source')}   ← 'ard_card' when card was fetched")
+    if a.get('trust_manifest'):
+        tm = a['trust_manifest']
+        atts = [x['type'] for x in tm.get('attestations', [])]
+        print(f"  trust_manifest.identity:    {tm.get('identity')}")
+        print(f"  trust_manifest.attestations: {atts}")
+PY
+```
+
+The `trust_manifest`, `capability_source`, and `endpoint_source`
+fields are **new in 0.26** — they're only populated when the agent
+came from an ARD catalog entry, so legacy DNS-AID discovery stays
+byte-identical.
+
 ## Also discoverable via ARD — same agent, second transport
 
 You just published `ip-reputation` via DNS-AID (SVCB record + TXT
-companions in Route 53). The SAME agent is **also visible** via the
-ARD HTTPS catalog — no second publish needed. The ARD Lambda
-auto-derives your sandbox's view of the federation from the global
-catalog and rewrites every entry's identifier, publisher, and trust
-identity to anchor under your slug.
+companions in Route 53) AND registered your ARD catalog pointer.
+The SAME agent is now visible via three paths — direct DNS-AID SVCB
+lookup, native `dns-aid` ARD path (through the pointer you just
+registered), and direct HTTPS curl of the ARD Lambda (which
+auto-derives your sandbox's view). All three resolve to the same
+`fastmcp-ip-reputation` backend.
 
 Confirm both discovery transports return the same `ip-reputation`:
 

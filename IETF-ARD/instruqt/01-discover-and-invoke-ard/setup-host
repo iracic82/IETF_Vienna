@@ -51,8 +51,14 @@ install_deps() {
     # dns-aid via `uv tool install` — official method per dns-aid-core repo.
     # Lands the binary in ~/.local/bin/dns-aid (uv tool dir) which we add to PATH.
     if ! command -v dns-aid >/dev/null 2>&1; then
-        echo "[setup] installing dns-aid[mcp,cli,route53] via uv tool install"
-        uv tool install 'dns-aid[mcp,cli,route53]' 2>&1 | tail -15
+        echo "[setup] installing dns-aid[mcp,cli,route53]>=0.26.2 via uv tool install"
+        # dns-aid 0.26.2 (2026-07-06) adds native ARD ai-catalog
+        # discovery inside the existing discover_agents_via_dns MCP
+        # tool + a `dns-aid index publish-catalog` CLI command that
+        # publishes the SVCB catalog pointer (_catalog._agents +
+        # _index._agents) at the sandbox's own zone. Students use it
+        # in C2 to register their per-slug catalog pointer.
+        uv tool install 'dns-aid[mcp,cli,route53]>=0.26.2' 2>&1 | tail -15
     fi
 
     # Patch dns-aid v0.13 in-place: Route53Backend honors ROUTE53_ZONE_ID env.

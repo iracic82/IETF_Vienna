@@ -346,18 +346,23 @@ export const IETF_LAYERS_OVERVIEW: Flow = {
 
 const ARD_NODES: Node[] = [
   ...IETF_NODES,
-  { id: "ard-search",  position: { x: 1040, y: 180 }, data: { label: "ARD search Lambda\nPOST /search (ARD §7.1)" }, type: "explorer" },
-  { id: "ard-catalog", position: { x: 1040, y:   0 }, data: { label: "ARD catalog\n/.well-known/ai-catalog.json" }, type: "explorer" },
+  { id: "ard-search",  position: { x: 1040, y: 180 }, data: { label: "ARD search Lambda\nPOST /search (optional)" }, type: "explorer" },
+  { id: "ard-catalog", position: { x: 1040, y:   0 }, data: { label: "ARD catalog on S3\n/.well-known/ai-catalog.json" }, type: "explorer" },
 ];
 
 const ARD_EDGES: Edge[] = [
-  // Discovery via DNS-AID is shown faded — reuse the existing labels
-  // so students see the contrast.
+  // DNS-AID base plane is shown faded — students see the contrast.
   ...IETF_EDGES,
-  // NEW edges for the ARD discovery path:
-  { id: "ard1", source: "agent",       target: "ard-search",  animated: true, label: "ARD search query" },
-  { id: "ard2", source: "ard-search",  target: "ard-catalog", animated: true, label: "GET catalog" },
-  { id: "ard3", source: "ard-search",  target: "cap-s3",      animated: true, label: "cap_uri (from catalog)" },
+  // Native dns-aid 0.26.2 ARD path (primary discovery route):
+  //   agent → dns-aid MCP (existing e1, "tool call")
+  //   dns-aid → CoreDNS  (existing e2, now doubles as SVCB pointer lookup)
+  //   dns-aid MCP directly fetches the catalog from S3 (NEW ard1)
+  //   catalog entries reference the same cap-s3 docs (NEW ard2)
+  { id: "ard1", source: "dns-aid",     target: "ard-catalog", animated: true, label: "fetch /.well-known/ai-catalog.json" },
+  { id: "ard2", source: "ard-catalog", target: "cap-s3",      animated: true, label: "entry.url → mcp-server-card.json" },
+  // Optional manual /search bonus path — still real, students can curl it:
+  { id: "ard3", source: "agent",       target: "ard-search",  animated: true, label: "optional: /search (curl)" },
+  { id: "ard4", source: "ard-search",  target: "ard-catalog", animated: true, label: "reads same catalog" },
 ];
 
 export const IETF_ARD_FLOW: Flow = {
@@ -376,37 +381,37 @@ export const IETF_ARD_FLOW: Flow = {
       },
     },
     {
-      id: "2", label: "ARD search query", nodeId: "ard-search", edgeFrom: "ard1", kind: "tool_call",
+      id: "2", label: "Native ARD via dns-aid MCP", nodeId: "dns-aid", edgeFrom: "e1", kind: "tool_call",
       detail: {
-        title: "Step 2 — Agent POSTs natural-language search to the ARD Lambda",
+        title: "Step 2 — Agent calls discover_agents_via_dns with use_http_index=True",
         rightPaneTabs: ["request"],
-        sampleRequest: 'POST https://wjonk5wh2j.execute-api.us-east-1.amazonaws.com/students/${SLUG}/search\nContent-Type: application/json\n\n{\n  "query": {\n    "text":   "check if IP address is malicious",\n    "filter": {"type": ["application/mcp-server-card+json"]}\n  }\n}\n\n# ARD §7.1 query envelope:\n#   - text:   natural-language semantic search (token-overlap scored)\n#   - filter: structured field constraints (dot-path resolution,\n#             OR within key, AND across keys)\n# Per-student URL path → Lambda auto-derives this slug\'s view of\n# the federation (rewrites host + URNs).',
+        sampleRequest: '// SAME MCP tool the DNS-AID flow used — one new flag.\n// dns-aid 0.26.2 auto-detects the ARD catalog pointer and\n// fetches the catalog natively. No new agent code needed.\n\ntools/call {\n  "name": "discover_agents_via_dns",\n  "arguments": {\n    "domain":         "${SLUG}.lab.ccdesanity.com",\n    "protocol":       "mcp",\n    "use_http_index": true    // ← flips to ARD/HTTP index path\n  }\n}\n\n// dns-aid MCP server (dns-aid-mcp container) receives the call,\n// then resolves the catalog pointer over DNS (next step).',
       },
     },
     {
-      id: "3", label: "Fetch global catalog", nodeId: "ard-catalog", edgeFrom: "ard2", kind: "cap_fetch",
+      id: "3", label: "Resolve SVCB catalog pointer", nodeId: "coredns", edgeFrom: "e2", kind: "dns_query",
       detail: {
-        title: "Step 3 — Lambda reads global ai-catalog.json from S3",
+        title: "Step 3 — dns-aid resolves _catalog._agents.<domain> SVCB pointer",
         rightPaneTabs: ["request", "response"],
-        sampleRequest: 'GET s3://ietf-vienna-cap-docs/.well-known/ai-catalog.json\n\n# Catalog conforms to the AI Catalog CDDL schema (ai-catalog.io):\n#   AICatalog     = {specVersion, ?host, entries[], ?metadata}\n#   HostInfo      = {displayName, ?identifier, ?documentationUrl,\n#                    ?logoUrl, ?trustManifest}\n#   CatalogEntry  = {identifier, displayName, type, (url // data),\n#                    ?version, ?description, ?tags, ?publisher,\n#                    ?trustManifest, ?updatedAt, ?metadata}',
-        sampleResponse: '{\n  "specVersion": "1.0",\n  "host": {\n    "displayName": "CCDeSanity Threat-Intel Federation (IETF Vienna ARD lab)",\n    "identifier":  "did:web:lab.ccdesanity.com",\n    "documentationUrl": "https://dns-aid.org",\n    "trustManifest": { "identity": "did:web:lab.ccdesanity.com", ... }\n  },\n  "entries": [\n    /* 8 spec-correct CatalogEntry objects */\n    "urn:air:lab.ccdesanity.com:agent:asn-info",\n    "urn:air:lab.ccdesanity.com:agent:cve-lookup",\n    "urn:air:lab.ccdesanity.com:agent:domain-age",\n    "urn:air:lab.ccdesanity.com:agent:file-hash",\n    "urn:air:lab.ccdesanity.com:agent:ip-reputation",\n    "urn:air:lab.ccdesanity.com:agent:passive-dns",\n    "urn:air:lab.ccdesanity.com:agent:threat-feed",\n    "urn:air:lab.ccdesanity.com:agent:url-scanner"\n  ]\n}',
+        sampleRequest: '// dns-aid 0.26 tries both dual-label pointers per spec:\n//   _catalog._agents.<domain>   (ARD §6.1)\n//   _index._agents.<domain>     (DNS-AID draft-02 §3.2)\n// _catalog wins if both are present.\n\ndig +short SVCB _catalog._agents.${SLUG}.lab.ccdesanity.com @coredns',
+        sampleResponse: '1 ietf-vienna-cap-docs.s3.amazonaws.com. alpn="h2" port="443"\n\n// Pointer says: fetch the catalog from S3.\n// dns-aid builds the well-known URL:\n//   https://ietf-vienna-cap-docs.s3.amazonaws.com/.well-known/ai-catalog.json\n// Published by the student via:\n//   dns-aid index publish-catalog ${SLUG}.lab.ccdesanity.com ietf-vienna-cap-docs.s3.amazonaws.com',
       },
     },
     {
-      id: "4", label: "Derive per-student view", nodeId: "ard-search", kind: "synthesis",
+      id: "4", label: "Fetch ai-catalog.json + dereference cards", nodeId: "ard-catalog", edgeFrom: "ard1", kind: "cap_fetch",
       detail: {
-        title: "Step 4 — Lambda derives the per-student catalog + scores entries",
+        title: "Step 4 — dns-aid fetches the catalog, then dereferences each entry's card",
         rightPaneTabs: ["response", "trust"],
         sampleResponse: '{\n  "totalCount": 3,\n  "results": [\n    {\n      "identifier":  "urn:air:${SLUG}.lab.ccdesanity.com:agent:ip-reputation",\n      "displayName": "IP Reputation",\n      "type":        "application/mcp-server-card+json",\n      "url":         "https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/mcp-server-card.json",\n      "version":     "1.0.0",\n      "description": "Real-time IPv4 reputation verdict ...",\n      "tags":        ["ip-reputation","threat-intel","ipv4","reputation"],\n      "publisher": {\n        "identifier":   "did:web:${SLUG}.lab.ccdesanity.com",\n        "displayName":  "Sandbox ${SLUG}",\n        "identityType": "did"\n      },\n      "trustManifest": {\n        "identity":     "spiffe://${SLUG}.lab.ccdesanity.com/agents/ip-reputation",\n        "identityType": "spiffe",\n        "attestations": [\n          {"type":"publisher-identity", "uri":"...trust/publisher.jwt"},\n          {"type":"SOC2-Type2",        "uri":"...trust/soc2-2026.pdf",   "digest":"sha256:bc46d2..."},\n          {"type":"ISO27001-2022",     "uri":"...trust/iso27001-2022.pdf","digest":"sha256:08cb86..."},\n          {"type":"GDPR-DPA",          "uri":"...trust/gdpr-dpa.pdf"}\n        ],\n        "provenance": [{\n          "relation":     "publishedFrom",\n          "sourceId":     "https://github.com/iracic82/IETF_Vienna",\n          "sourceDigest": "sha256:7f76790...",\n          "registryUri":  "https://ietf-vienna-cap-docs.s3.amazonaws.com"\n        }]\n      },\n      "metadata": {\n        "io.dnsaid.capUri":     "...ip-reputation/v1.json",\n        "io.dnsaid.policyUri":  "...ip-reputation/policy.json",\n        "io.dnsaid.tools":      [{"name":"lookup_ip", ...}],\n        "io.dnsaid.rateLimit":  {"per":"minute", "max":60}\n      },\n      "score": 100.0\n    },\n    {"score": 50.0, "identifier": "urn:air:${SLUG}.lab.ccdesanity.com:agent:asn-info",     ...},\n    {"score": 50.0, "identifier": "urn:air:${SLUG}.lab.ccdesanity.com:agent:passive-dns",  ...}\n  ]\n}',
         sampleTrust: 'WHAT THE TRUSTMANIFEST GIVES YOU:\n\n  identity (SPIFFE)\n    → spiffe://${SLUG}.lab.ccdesanity.com/agents/ip-reputation\n    → cryptographically binds this workload to the publisher\n      domain, per ai-catalog.io §Trust Manifest\n\n  4 attestations\n    → publisher-identity  — JWT proving the did:web publisher\n    → SOC2-Type2          — sha256-pinned audit PDF, 245760 bytes\n    → ISO27001-2022       — sha256-pinned cert PDF, 198400 bytes\n    → GDPR-DPA            — data processing addendum\n\n  provenance.publishedFrom\n    → source: github.com/iracic82/IETF_Vienna (sha256-pinned)\n    → registry: ietf-vienna-cap-docs S3 bucket\n    → consumers can trace the build → publish chain end to end\n\n  trustSchema.urn:trust:lab.ccdesanity.com:federation-v1\n    → governance reference: which trust rules apply to this catalog\n    → verificationMethods: ["sigstore","jws","x509"]',
       },
     },
     {
-      id: "5", label: "Fetch cap doc", nodeId: "cap-s3", edgeFrom: "ard3", kind: "cap_fetch",
+      id: "5", label: "Cap doc + agent cards land on the same S3 backend", nodeId: "cap-s3", edgeFrom: "ard2", kind: "cap_fetch",
       detail: {
-        title: "Step 5 — Agent fetches the chosen agent's cap doc (same as DNS-AID path)",
+        title: "Step 5 — dns-aid dereferences each entry.url (mcp-server-card.json) from S3",
         rightPaneTabs: ["request"],
-        sampleRequest: 'GET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json\n\n# Note: the cap_uri came from the ARD entry, NOT from a DNS SVCB\n# SvcParam. Same downstream URL, different discovery transport.\n#\n# Pedagogical point: ARD vs DNS-AID is a DISCOVERY substrate choice.\n# Everything downstream of cap_uri (the cap doc, the policy doc, the\n# MCP server card, the actual backend) is IDENTICAL.',
+        sampleRequest: '// For each catalog entry:\nGET https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/mcp-server-card.json\n\n// Per ARD §3.4, the catalog entry\'s `url` is the fetchable card;\n// dns-aid follows the URL (or reads inline `data` if used).\n// Endpoint + capabilities + tools come from the DEREFERENCED card,\n// so ARD-sourced agents are as complete as DNS-sourced ones.\n//\n// Response fields dns-aid then tags on the DiscoveredAgent:\n//   capability_source = "ard_catalog"\n//   endpoint_source   = "ard_card"\n//   trust_manifest    = {identity, attestations[], provenance[], ...}\n//\n// Same downstream URL as the DNS-AID SVCB flow → same backend.\n// Different discovery transport, identical runtime.',
       },
     },
     {
@@ -437,9 +442,9 @@ export const IETF_ARD_FLOW: Flow = {
     {
       id: "9", label: "Synthesis", nodeId: "agent", kind: "synthesis",
       detail: {
-        title: "Step 9 — Audit chain notes ARD as the discovery transport",
+        title: "Step 9 — Audit chain surfaces the new dns-aid 0.26 ARD fields",
         rightPaneTabs: ["response"],
-        sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Trust chain (audit):**\n       - Discovery via: ARD search Lambda (POST /search)\n       - ARD entry:     urn:air:lab.ccdesanity.com:agent:ip-reputation\n       - Cap doc:       …/ip-reputation/v1.json  (same URL as DNS-AID)\n       - Policy:        …/ip-reputation/policy.json  (same)\n       - SDK guard:     ALLOWED (Layer 1)\n       - Invoked via:   http://agentgateway:3000/ip-reputation/mcp  (same)\n\n# Same federation, different discovery transport.\n# dns-aid-core 0.26+ will read ARD catalogs natively — until then,\n# this lab demonstrates the transport via direct curl in C2/C3.',
+        sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Trust chain (audit):**\n       - Discovery via:      dns-aid MCP (discover_agents_via_dns, use_http_index=True)\n       - Catalog pointer:    _catalog._agents.<slug>.lab.ccdesanity.com → S3\n       - ARD entry:          urn:air:<slug>.lab.ccdesanity.com:agent:ip-reputation\n       - capability_source:  ard_catalog     ← NEW in dns-aid 0.26\n       - endpoint_source:    ard_card        ← NEW in dns-aid 0.26\n       - trust_manifest.identity:      spiffe://…/agents/ip-reputation\n       - trust_manifest.attestations:  publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA\n       - Cap doc:            …/ip-reputation/v1.json      (same URL as DNS-AID)\n       - Policy:             …/ip-reputation/policy.json  (same)\n       - SDK guard:          ALLOWED (Layer 1)\n       - Invoked via:        http://agentgateway:3000/ip-reputation/mcp  (same)\n\n// Same MCP tool call, one flag flipped. Zero agent code changes.\n// dns-aid handled: pointer resolution → catalog fetch → card\n// dereference → trust-manifest surfacing. The agent just consumed\n// the enriched response.',
       },
     },
   ],

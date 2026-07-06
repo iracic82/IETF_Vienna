@@ -77,6 +77,21 @@ REQUIRED FLOW for IP queries:
             name     = "ip-reputation"
           The wrapper auto-fetches the cap_uri (the published contract on
           S3) and inlines `__cap_doc` into the result. Read it.
+
+WHEN THE USER ASKS TO USE ARD (Agentic Resource Discovery) OR TO LIST
+THE FEDERATION CATALOG:
+  Call discover_agents_via_dns with the SAME domain but pass
+  use_http_index=True. dns-aid 0.26.2+ resolves the ARD catalog
+  pointer (_catalog._agents.<domain> / _index._agents.<domain>
+  SVCB records) and returns all catalog agents with these NEW
+  response fields (present only for ARD-sourced results):
+    - capability_source = "ard_catalog"
+    - endpoint_source   = "ard_card" or "ard_inline"
+    - trust_manifest    = {{identity, identityType, attestations[], provenance[], ...}}
+  When present, surface trust_manifest.identity and the list of
+  attestation types in the audit chain (see AUDIT CHAIN FOR ARD
+  BELOW). Same MCP tool, different discovery transport — the agent
+  never learns a new function call.
   Step 2. Read the agent record. Expect these fields:
             __cap_uri           the S3 URL the record points to
             __cap_doc           the parsed JSON contents of that URL

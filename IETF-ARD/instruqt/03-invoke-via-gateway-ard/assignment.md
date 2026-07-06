@@ -342,13 +342,60 @@ The lookup DB doesn't know about that IP. Watch the agent honestly
 report `verdict: unknown` (not "probably safe" or "I'll guess from
 training"). Honest reporting is part of the federation contract.
 
-## Bonus 2b — discover via ARD instead of DNS-AID
+## Bonus 2b — native ARD discovery through the same MCP tool (dns-aid 0.26.2)
 
-You've seen the agent discover via DNS-AID (`discover_agents_via_dns`).
-Now show the ARD path explicitly — the agent doesn't know in advance
-which agents the enterprise has, so it queries the ARD search Lambda
-with a natural-language description of what it needs, and gets back
-the matching catalog entries.
+You've seen the agent call `discover_agents_via_dns` to find
+`ip-reputation` via the DNS-AID SVCB record. **dns-aid 0.26.2** made
+the same MCP tool ARD-aware: pass `use_http_index=True` and it
+resolves your `_catalog._agents.<domain>` SVCB pointer (published
+in C2), fetches the ARD `ai-catalog.json`, dereferences each entry's
+agent card, and returns agents WITH their `trust_manifest`. Same
+tool call — richer result.
+
+Ask the agent explicitly to discover via the ARD path:
+
+```run
+docker exec -i strands-agent python /app/agent.py <<< \
+  "Use the ARD catalog to list every agent this federation publishes, and for each show its trust_manifest.identity + attestation types."
+```
+
+Watch the tool call. In the terminal you'll see:
+
+```
+  [tool] discover_agents_via_dns({'domain': '<slug>.lab.ccdesanity.com', 'use_http_index': True})
+  [cap-fetch] resolving _catalog._agents.<slug>.lab.ccdesanity.com
+  [cap-fetch] catalog pointer → https://ietf-vienna-cap-docs.s3.amazonaws.com/.well-known/ai-catalog.json
+  [cap-fetch] 8 catalog entries; dereferencing each entry's mcp-server-card.json
+  [result] 8 agents, capability_source="ard_catalog", endpoint_source="ard_card", trust_manifest populated
+```
+
+And the agent's audit chain now surfaces the new 0.26 fields:
+
+```
+agent> Federation catalog (8 agents, discovered via ARD):
+        
+       - ip-reputation
+         trust_manifest.identity: spiffe://lab.ccdesanity.com/agents/ip-reputation
+         attestations: [publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA]
+         capability_source: ard_catalog
+         endpoint_source:   ard_card
+       - asn-info
+         trust_manifest.identity: spiffe://lab.ccdesanity.com/agents/asn-info
+         attestations: [publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA]
+       ...
+```
+
+> **Same MCP tool, different transport.** The agent never learned a
+> new function call. It set one flag (`use_http_index=True`), and
+> dns-aid handled the entire ARD path — SVCB pointer resolution,
+> catalog fetch, card dereferencing, trust-manifest surfacing. That's
+> the pedagogical point: **discovery format changes don't propagate
+> to the agent code**.
+
+### The manual view — same catalog, direct curl
+
+For comparison, hit the ARD Lambda directly (bypassing the MCP tool)
+and see the raw catalog structure:
 
 ```run
 echo "=== ARD federation catalog ==="
