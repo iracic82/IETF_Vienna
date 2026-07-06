@@ -253,9 +253,9 @@ discovery planes:
 > see the raw envelope. **In C2 you'll `dns-aid index publish-catalog`
 > to register your sandbox's ARD pointer** — that unlocks the native
 > path. **In C3 the model will discover ARD-sourced agents through
-> the same MCP tool** and surface `capability_source: ard_catalog`,
-> `endpoint_source: ard_card`, and the full `trust_manifest` in its
-> audit chain.
+> the same MCP tool** and surface the full `trust_manifest` (SPIFFE
+> identity + attestations) plus `capability_source` / `endpoint_source`
+> fields that honestly report how each agent was resolved.
 
 Curl the global ARD catalog so you can see what an enterprise's
 federation manifest actually looks like — 8 agents, full

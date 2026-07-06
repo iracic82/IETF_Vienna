@@ -346,8 +346,8 @@ print(f"discovered {len(agents)} agents via ARD:")
 for a in agents[:3]:
     print(f"\n  name:              {a.get('name')}")
     print(f"  endpoint:          {a.get('endpoint')}")
-    print(f"  capability_source: {a.get('capability_source')}   ← 'ard_catalog' when from ARD")
-    print(f"  endpoint_source:   {a.get('endpoint_source')}   ← 'ard_card' when card was fetched")
+    print(f"  capability_source: {a.get('capability_source')}   ← how capabilities were resolved")
+    print(f"  endpoint_source:   {a.get('endpoint_source')}   ← how the endpoint was resolved")
     tm = a.get('trust_manifest')
     if tm:
         atts = [x.get('type') for x in tm.get('attestations', [])]
@@ -357,9 +357,26 @@ PY
 ```
 
 The `trust_manifest`, `capability_source`, and `endpoint_source`
-fields are **new in 0.26** — they're only populated when the agent
-came from an ARD catalog entry, so legacy DNS-AID discovery stays
-byte-identical.
+fields are **new in 0.26** and only populated for ARD-sourced agents,
+so legacy DNS-AID discovery stays byte-identical. Read what your
+output actually reported — honestly:
+
+| Field | Value you saw | What it means |
+|---|---|---|
+| `capability_source` | `agent_card` | dns-aid dereferenced each entry's `mcp-server-card.json` and took capabilities from the card (dns-aid's `capability_source = agent_card` resolution step). |
+| `endpoint_source` | `http_index_fallback` | These 8 agents are **catalog-only** — they have no authoritative per-agent DNS SVCB record, and the reference cards are metadata-only (no service URL). So dns-aid fell back to the catalog-derived endpoint. `ard_card` / `ard_inline` would appear only if a card carried a **real** service endpoint. |
+| `endpoint` | `…s3.amazonaws.com:443` | Follows from the above — a placeholder (the catalog host), **not** a live service. The real runtime endpoint for `ip-reputation` is the agentgateway route you'll invoke in Challenge 3. |
+| `trust_manifest` | full SPIFFE identity + 4 attestations | **This is the real payload.** The federation's identity + trust evidence came through the ARD path complete and validated — that's what ARD adds over a bare SVCB lookup. |
+
+> **Identity anchoring — a subtlety worth noticing.** The native
+> `dns-aid` path resolves your `_catalog._agents` pointer, which
+> targets the **shared** catalog on S3, so identities read
+> `spiffe://lab.ccdesanity.com/agents/…` (the federation root). The
+> Lambda `/students/<slug>/search` path (next section) returns the
+> **per-student derived** view, where the same agents are re-anchored
+> under `spiffe://<slug>.lab.ccdesanity.com/agents/…`. Same agents,
+> two legitimately different trust-domain framings — global vs your
+> sandbox's slice.
 
 ## Also discoverable via ARD — same agent, second transport
 

@@ -366,7 +366,7 @@ Watch the tool call. In the terminal you'll see:
   [cap-fetch] resolving _catalog._agents.<slug>.lab.ccdesanity.com
   [cap-fetch] catalog pointer → https://ietf-vienna-cap-docs.s3.amazonaws.com/.well-known/ai-catalog.json
   [cap-fetch] 8 catalog entries; dereferencing each entry's mcp-server-card.json
-  [result] 8 agents, capability_source="ard_catalog", endpoint_source="ard_card", trust_manifest populated
+  [result] 8 agents, capability_source="agent_card", endpoint_source="http_index_fallback", trust_manifest populated
 ```
 
 And the agent's audit chain now surfaces the new 0.26 fields:
@@ -377,13 +377,23 @@ agent> Federation catalog (8 agents, discovered via ARD):
        - ip-reputation
          trust_manifest.identity: spiffe://lab.ccdesanity.com/agents/ip-reputation
          attestations: [publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA]
-         capability_source: ard_catalog
-         endpoint_source:   ard_card
+         capability_source: agent_card            (card dereferenced)
+         endpoint_source:   http_index_fallback   (catalog-only agent, no per-agent SVCB)
        - asn-info
          trust_manifest.identity: spiffe://lab.ccdesanity.com/agents/asn-info
          attestations: [publisher-identity, SOC2-Type2, ISO27001-2022, GDPR-DPA]
        ...
 ```
+
+> **Why `agent_card` / `http_index_fallback` and not `ard_card`?**
+> These 8 agents live only in the ARD catalog and their reference
+> cards are metadata-only (no service URL). dns-aid took capabilities
+> from the dereferenced card (`agent_card`) but had no real endpoint
+> to bind, so it fell back to the catalog-derived host
+> (`http_index_fallback`). You'd see `endpoint_source: ard_card` only
+> if a card advertised a concrete, reachable endpoint. The
+> `trust_manifest` — SPIFFE identity + 4 attestations — is the real
+> win here, and it came through the ARD path complete.
 
 > **Same MCP tool, different transport.** The agent never learned a
 > new function call. It set one flag (`use_http_index=True`), and
