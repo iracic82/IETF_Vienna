@@ -128,6 +128,15 @@ export const IETF_FLOW: Flow = {
       },
     },
     {
+      id: "3b", label: "Authoritative answer", nodeId: "route53", edgeFrom: "e3", kind: "dns_query",
+      detail: {
+        title: "Step 3b — CoreDNS recurses to Route 53 (authoritative, DNSSEC-signed)",
+        rightPaneTabs: ["response", "trust"],
+        sampleResponse: 'CoreDNS is a local VALIDATING resolver — it doesn\'t own the\nrecord, it recurses to the authoritative zone. Route 53 hosts\nlab.ccdesanity.com and returns the signed SVCB + RRSIG:\n\n  ip-reputation.${SLUG}.lab.ccdesanity.com.  30  IN  SVCB  1 fastmcp-ip-reputation. …\n  ip-reputation.${SLUG}.lab.ccdesanity.com.  30  IN  RRSIG SVCB … (Route 53 KSK/ZSK)\n\nCoreDNS caches the answer for the TTL (30s). Route 53 is the\nSOURCE OF TRUTH — the DNSSEC chain terminates in its signed zone.',
+        sampleTrust: 'WHY ROUTE 53 MATTERS HERE:\n  - It is the authoritative, DNSSEC-signed origin of the record.\n    The AD flag the resolver set is only trustworthy because the\n    chain validates down to Route 53\'s signed zone.\n  - After this resolution the answer is cached; Route 53 is NOT\n    re-queried for the rest of the invocation (the agent already\n    has the endpoint + cap_uri/policy_uri).\n  - Route 53 is queried AGAIN later — but by the xDS translator\n    (Step 6), which polls it every 5s to keep gateway routes in\n    sync. Publisher-side, not caller-side.',
+      },
+    },
+    {
       id: "4", label: "Cap doc fetch (S3)", nodeId: "cap-s3", edgeFrom: "e4", kind: "cap_fetch",
       detail: {
         title: "Step 4 — agent_vertex wrapper GETs cap_uri from S3",
