@@ -87,7 +87,10 @@ const IETF_EDGES: Edge[] = [
   { id: "e6", source: "translator", target: "gateway",    animated: true, label: "xDS push" },
   { id: "e9", source: "agent",      target: "sdk-guard",  animated: true, label: "check policy" },
   { id: "e10", source: "sdk-guard", target: "cap-s3",     animated: true, label: "fetch policy.json" },
-  { id: "e7", source: "agent",      target: "gateway",    animated: true, label: "MCP call" },
+  // Route the MCP-call edge out of the agent's BOTTOM and into the
+  // gateway's TOP so it doesn't run along y=180 through the S3 cap-doc
+  // node (which would falsely read as "the invocation goes via the cap doc").
+  { id: "e7", source: "agent",      target: "gateway",    animated: true, label: "MCP call", sourceHandle: "b", targetHandle: "t" },
   { id: "e8", source: "gateway",    target: "fastmcp",    animated: true, label: "proxy" },
 ];
 

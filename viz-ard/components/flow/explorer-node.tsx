@@ -22,6 +22,10 @@ export function ExplorerNode({ data }: NodeProps & { data: ExplorerNodeData }) {
       )}
     >
       <Handle type="target" position={Position.Left} className="!bg-[var(--color-flow)] !w-2 !h-2 !border-0" />
+      {/* Invisible top-target anchor: lets specific edges (e.g. the MCP
+          call agent→gateway) enter from above instead of the left, so
+          they don't route through nodes sharing the source's row. */}
+      <Handle type="target" position={Position.Top} id="t" className="!opacity-0 !w-2 !h-2 !border-0" />
       <div className="flex flex-col gap-0.5">
         <div
           className={cn(
@@ -38,6 +42,8 @@ export function ExplorerNode({ data }: NodeProps & { data: ExplorerNodeData }) {
         )}
       </div>
       <Handle type="source" position={Position.Right} className="!bg-[var(--color-flow)] !w-2 !h-2 !border-0" />
+      {/* Invisible bottom-source anchor (see top-target note above). */}
+      <Handle type="source" position={Position.Bottom} id="b" className="!opacity-0 !w-2 !h-2 !border-0" />
     </div>
   );
 }
