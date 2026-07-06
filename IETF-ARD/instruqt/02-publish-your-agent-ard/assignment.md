@@ -322,30 +322,25 @@ Now `dns-aid discover` finds ARD-sourced agents natively — no curl,
 no separate tool. Watch it resolve the pointer and dereference each
 entry's agent card:
 
+> **Note on `DNS_AID_LOG_LEVEL=CRITICAL`:** dns-aid logs its discovery
+> progress via structlog, which uses a `PrintLoggerFactory` that writes
+> to **stdout** — so those `[info]`/`[debug]` lines land in the same
+> stream as the `--json` payload and would break `json.load`. Setting
+> `DNS_AID_LOG_LEVEL=CRITICAL` filters the log lines out, leaving stdout
+> as clean JSON. (The parser below also strips any leading non-JSON
+> defensively, so it's robust either way.)
+
 ```run
-dns-aid discover "${SANDBOX_SLUG}.${ZONE}" --use-http-index --json > /tmp/ard-response.json
+DNS_AID_LOG_LEVEL=CRITICAL dns-aid discover "${SANDBOX_SLUG}.${ZONE}" --use-http-index --json > /tmp/ard-response.json
 python3 <<'PY'
 import json
-# dns-aid --json emits a STREAM of JSON documents (one per discovery
-# plane): DNS-only result first (often `null` when no flat records
-# exist), then the HTTP-index / ARD result. Parse the stream and pick
-# the doc that actually carries agents.
-text = open("/tmp/ard-response.json").read()
-dec = json.JSONDecoder()
-docs, pos = [], 0
-while pos < len(text):
-    while pos < len(text) and text[pos].isspace():
-        pos += 1
-    if pos >= len(text):
-        break
-    obj, end = dec.raw_decode(text, pos)
-    docs.append(obj)
-    pos = end
-result = next(
-    (d for d in reversed(docs) if isinstance(d, dict) and isinstance(d.get('agents'), list) and d['agents']),
-    docs[-1] if docs else {},
-)
-agents = result.get('agents', []) if isinstance(result, dict) else []
+raw = open("/tmp/ard-response.json").read()
+# dns-aid's structlog writes to STDOUT (PrintLoggerFactory);
+# DNS_AID_LOG_LEVEL=CRITICAL silences it, and we strip any leading
+# non-JSON so this works either way. Output is one JSON object.
+i = raw.find("{")
+d = json.loads(raw[i:]) if i != -1 else {}
+agents = d.get("agents", []) if isinstance(d, dict) else d
 
 print(f"discovered {len(agents)} agents via ARD:")
 for a in agents[:3]:
@@ -353,8 +348,8 @@ for a in agents[:3]:
     print(f"  endpoint:          {a.get('endpoint')}")
     print(f"  capability_source: {a.get('capability_source')}   ← 'ard_catalog' when from ARD")
     print(f"  endpoint_source:   {a.get('endpoint_source')}   ← 'ard_card' when card was fetched")
-    if a.get('trust_manifest'):
-        tm = a['trust_manifest']
+    tm = a.get('trust_manifest')
+    if tm:
         atts = [x.get('type') for x in tm.get('attestations', [])]
         print(f"  trust_manifest.identity:    {tm.get('identity')}")
         print(f"  trust_manifest.attestations: {atts}")
