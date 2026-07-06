@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 type ExplorerNodeData = {
   label: string;
   active?: boolean;
+  denied?: boolean;
 };
 
 export function ExplorerNode({ data }: NodeProps & { data: ExplorerNodeData }) {
@@ -16,9 +17,11 @@ export function ExplorerNode({ data }: NodeProps & { data: ExplorerNodeData }) {
         "rounded-md px-4 py-3 min-w-[180px]",
         "bg-[var(--color-bg-panel)]",
         "border transition-all duration-300",
-        data.active
-          ? "border-[var(--color-accent)] shadow-[0_0_24px_-4px_var(--color-accent)]"
-          : "border-[var(--color-border-strong)]",
+        data.denied
+          ? "border-[#f87171] shadow-[0_0_24px_-4px_#f87171]"
+          : data.active
+            ? "border-[var(--color-accent)] shadow-[0_0_24px_-4px_var(--color-accent)]"
+            : "border-[var(--color-border-strong)]",
       )}
     >
       <Handle type="target" position={Position.Left} className="!bg-[var(--color-flow)] !w-2 !h-2 !border-0" />
@@ -30,7 +33,11 @@ export function ExplorerNode({ data }: NodeProps & { data: ExplorerNodeData }) {
         <div
           className={cn(
             "font-mono text-[13px] font-medium",
-            data.active ? "text-[var(--color-accent-soft)]" : "text-[var(--color-text)]",
+            data.denied
+              ? "text-[#fca5a5]"
+              : data.active
+                ? "text-[var(--color-accent-soft)]"
+                : "text-[var(--color-text)]",
           )}
         >
           {lines[0]}
