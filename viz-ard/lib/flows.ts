@@ -110,7 +110,7 @@ export const IETF_FLOW: Flow = {
       },
     },
     {
-      id: "2", label: "Discover tool call", nodeId: "agent", edgeFrom: "e1", kind: "tool_call",
+      id: "2", label: "Discover tool call", nodeId: "dns-aid", edgeFrom: "e1", kind: "tool_call",
       detail: {
         title: "Step 2 — Gemini selects discover_agents_via_dns",
         rightPaneTabs: ["request"],
@@ -161,6 +161,14 @@ export const IETF_FLOW: Flow = {
         rightPaneTabs: ["request", "response"],
         sampleRequest: 'Translator poll (every 5s):\n  dig SVCB ip-reputation.${SLUG}.lab.ccdesanity.com @coredns\n\nResult: SVCB record present (or absent → triggers route removal)',
         sampleResponse: 'Envoy v3 ADS DeltaDiscoveryResponse:\n  Bind     (port 3000)\n  Listener (dnsaid-discovered)\n  Route    (/ip-reputation/mcp exact → MCP backend)\n  Backend  (mcp wrapper)\n  Backend  (static → fastmcp-ip-reputation:3000)\n\nGateway materialises the new route in <1s after the push.',
+      },
+    },
+    {
+      id: "6b", label: "Route materialises", nodeId: "gateway", edgeFrom: "e6", kind: "xds_push",
+      detail: {
+        title: "Step 6b — the xDS push lands: the route appears on agentgateway",
+        rightPaneTabs: ["response"],
+        sampleResponse: 'agentgateway had ZERO routes at boot. The translator\'s ADS push\nnow installs, with no human editing the gateway config:\n  Listener  dnsaid-discovered\n  Route     = /ip-reputation/mcp   (exact match)\n  Backend   → fastmcp-ip-reputation:3000\n\nThe route exists purely because a DNS SVCB record exists. Delete\nthe record and — one TTL later — the translator pushes an empty\nsnapshot and this route vanishes. THIS edge is "DNS as the runtime\ncontrol plane": Route 53 (Step 3b) → translator → gateway.',
       },
     },
     {
@@ -231,7 +239,7 @@ export const IETF_DENIED_FLOW: Flow = {
       },
     },
     {
-      id: "2", label: "Discover tool call", nodeId: "agent", edgeFrom: "e1", kind: "tool_call",
+      id: "2", label: "Discover tool call", nodeId: "dns-aid", edgeFrom: "e1", kind: "tool_call",
       detail: {
         title: "Step 2 — Gemini selects discover_agents_via_dns",
         rightPaneTabs: ["request"],
@@ -407,6 +415,15 @@ export const IETF_ARD_FLOW: Flow = {
         rightPaneTabs: ["request", "response"],
         sampleRequest: '// dns-aid 0.26 tries both dual-label pointers per spec:\n//   _catalog._agents.<domain>   (ARD §6.1)\n//   _index._agents.<domain>     (DNS-AID draft-02 §3.2)\n// _catalog wins if both are present.\n\ndig +short SVCB _catalog._agents.${SLUG}.lab.ccdesanity.com @coredns',
         sampleResponse: '1 ietf-vienna-cap-docs.s3.amazonaws.com. alpn="h2" port="443"\n\n// Pointer says: fetch the catalog from S3.\n// dns-aid builds the well-known URL:\n//   https://ietf-vienna-cap-docs.s3.amazonaws.com/.well-known/ai-catalog.json\n// Published by the student via:\n//   dns-aid index publish-catalog ${SLUG}.lab.ccdesanity.com ietf-vienna-cap-docs.s3.amazonaws.com',
+      },
+    },
+    {
+      id: "3b", label: "Pointer is authoritative", nodeId: "route53", edgeFrom: "e3", kind: "dns_query",
+      detail: {
+        title: "Step 3b — the _catalog._agents pointer is an authoritative, signed Route 53 record",
+        rightPaneTabs: ["response", "trust"],
+        sampleResponse: 'CoreDNS doesn\'t own the pointer — it recurses to Route 53, the\nauthoritative zone for lab.ccdesanity.com. The pointer is a real,\nDNSSEC-signed SVCB record published by:\n\n  dns-aid index publish-catalog ${SLUG}.lab.ccdesanity.com \\\n      ietf-vienna-cap-docs.s3.amazonaws.com\n\nSo "where the ARD catalog lives" is itself signed DNS — the HTTPS\ncatalog is discovered through the SAME trust root as a bare SVCB.',
+        sampleTrust: 'The ARD catalog host is only as trustworthy as the DNS pointer\nthat advertises it. Because that pointer is DNSSEC-signed in\nRoute 53, an attacker can\'t redirect discovery to a rogue catalog\nwithout breaking the chain.\n\nSame authoritative source (Route 53) as the DNS-AID flow — just a\ndifferent record: _catalog._agents.<domain> (the pointer) vs the\nflat <agent>.<domain> SVCB (the agent itself).',
       },
     },
     {

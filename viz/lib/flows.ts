@@ -110,7 +110,7 @@ export const IETF_FLOW: Flow = {
       },
     },
     {
-      id: "2", label: "Discover tool call", nodeId: "agent", edgeFrom: "e1", kind: "tool_call",
+      id: "2", label: "Discover tool call", nodeId: "dns-aid", edgeFrom: "e1", kind: "tool_call",
       detail: {
         title: "Step 2 — Gemini selects discover_agents_via_dns",
         rightPaneTabs: ["request"],
@@ -125,6 +125,15 @@ export const IETF_FLOW: Flow = {
         sampleRequest: 'dig +dnssec SVCB ip-reputation.${SLUG}.lab.ccdesanity.com',
         sampleResponse: ';; flags: qr rd ra ad ◄── DNSSEC validated\nip-reputation.${SLUG}.lab.ccdesanity.com. 30 IN SVCB\n  1 fastmcp-ip-reputation. mandatory=alpn,port alpn="mcp" port=3000\n\nTXT companion records (Route 53 demotes custom SvcParams to TXT):\n  "dnsaid_key65400=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/v1.json"\n  "dnsaid_key65403=https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json"',
         sampleTrust: '. → com → ccdesanity.com → lab.ccdesanity.com\n✓ DS at .com TLD (KSK 39752)\n✓ DS at ccdesanity.com  (KSK 9396)\n✓ DNSKEY + RRSIG verified\n✓ AD flag returned by Cloudflare 1.1.1.1',
+      },
+    },
+    {
+      id: "3b", label: "Authoritative answer", nodeId: "route53", edgeFrom: "e3", kind: "dns_query",
+      detail: {
+        title: "Step 3b — CoreDNS recurses to Route 53 (authoritative, DNSSEC-signed)",
+        rightPaneTabs: ["response", "trust"],
+        sampleResponse: 'CoreDNS is a local VALIDATING resolver — it doesn\'t own the\nrecord, it recurses to the authoritative zone. Route 53 hosts\nlab.ccdesanity.com and returns the signed SVCB + RRSIG:\n\n  ip-reputation.${SLUG}.lab.ccdesanity.com.  30  IN  SVCB  1 fastmcp-ip-reputation. …\n  ip-reputation.${SLUG}.lab.ccdesanity.com.  30  IN  RRSIG SVCB … (Route 53 KSK/ZSK)\n\nCoreDNS caches the answer for the TTL (30s). Route 53 is the\nSOURCE OF TRUTH — the DNSSEC chain terminates in its signed zone.',
+        sampleTrust: 'WHY ROUTE 53 MATTERS HERE:\n  - It is the authoritative, DNSSEC-signed origin of the record.\n    The AD flag the resolver set is only trustworthy because the\n    chain validates down to Route 53\'s signed zone.\n  - After this resolution the answer is cached; Route 53 is NOT\n    re-queried for the rest of the invocation (the agent already\n    has the endpoint + cap_uri/policy_uri).\n  - Route 53 is queried AGAIN later — but by the xDS translator\n    (Step 6), which polls it every 5s to keep gateway routes in\n    sync. Publisher-side, not caller-side.',
       },
     },
     {
@@ -152,6 +161,14 @@ export const IETF_FLOW: Flow = {
         rightPaneTabs: ["request", "response"],
         sampleRequest: 'Translator poll (every 5s):\n  dig SVCB ip-reputation.${SLUG}.lab.ccdesanity.com @coredns\n\nResult: SVCB record present (or absent → triggers route removal)',
         sampleResponse: 'Envoy v3 ADS DeltaDiscoveryResponse:\n  Bind     (port 3000)\n  Listener (dnsaid-discovered)\n  Route    (/ip-reputation/mcp exact → MCP backend)\n  Backend  (mcp wrapper)\n  Backend  (static → fastmcp-ip-reputation:3000)\n\nGateway materialises the new route in <1s after the push.',
+      },
+    },
+    {
+      id: "6b", label: "Route materialises", nodeId: "gateway", edgeFrom: "e6", kind: "xds_push",
+      detail: {
+        title: "Step 6b — the xDS push lands: the route appears on agentgateway",
+        rightPaneTabs: ["response"],
+        sampleResponse: 'agentgateway had ZERO routes at boot. The translator\'s ADS push\nnow installs, with no human editing the gateway config:\n  Listener  dnsaid-discovered\n  Route     = /ip-reputation/mcp   (exact match)\n  Backend   → fastmcp-ip-reputation:3000\n\nThe route exists purely because a DNS SVCB record exists. Delete\nthe record and — one TTL later — the translator pushes an empty\nsnapshot and this route vanishes. THIS edge is "DNS as the runtime\ncontrol plane": Route 53 (Step 3b) → translator → gateway.',
       },
     },
     {
@@ -222,7 +239,7 @@ export const IETF_DENIED_FLOW: Flow = {
       },
     },
     {
-      id: "2", label: "Discover tool call", nodeId: "agent", edgeFrom: "e1", kind: "tool_call",
+      id: "2", label: "Discover tool call", nodeId: "dns-aid", edgeFrom: "e1", kind: "tool_call",
       detail: {
         title: "Step 2 — Gemini selects discover_agents_via_dns",
         rightPaneTabs: ["request"],
