@@ -326,8 +326,27 @@ entry's agent card:
 dns-aid discover "${SANDBOX_SLUG}.${ZONE}" --use-http-index --json > /tmp/ard-response.json
 python3 <<'PY'
 import json
-d = json.load(open("/tmp/ard-response.json"))
-agents = d.get('agents') if isinstance(d, dict) else d
+# dns-aid --json emits a STREAM of JSON documents (one per discovery
+# plane): DNS-only result first (often `null` when no flat records
+# exist), then the HTTP-index / ARD result. Parse the stream and pick
+# the doc that actually carries agents.
+text = open("/tmp/ard-response.json").read()
+dec = json.JSONDecoder()
+docs, pos = [], 0
+while pos < len(text):
+    while pos < len(text) and text[pos].isspace():
+        pos += 1
+    if pos >= len(text):
+        break
+    obj, end = dec.raw_decode(text, pos)
+    docs.append(obj)
+    pos = end
+result = next(
+    (d for d in reversed(docs) if isinstance(d, dict) and isinstance(d.get('agents'), list) and d['agents']),
+    docs[-1] if docs else {},
+)
+agents = result.get('agents', []) if isinstance(result, dict) else []
+
 print(f"discovered {len(agents)} agents via ARD:")
 for a in agents[:3]:
     print(f"\n  name:              {a.get('name')}")
@@ -336,7 +355,7 @@ for a in agents[:3]:
     print(f"  endpoint_source:   {a.get('endpoint_source')}   ← 'ard_card' when card was fetched")
     if a.get('trust_manifest'):
         tm = a['trust_manifest']
-        atts = [x['type'] for x in tm.get('attestations', [])]
+        atts = [x.get('type') for x in tm.get('attestations', [])]
         print(f"  trust_manifest.identity:    {tm.get('identity')}")
         print(f"  trust_manifest.attestations: {atts}")
 PY
