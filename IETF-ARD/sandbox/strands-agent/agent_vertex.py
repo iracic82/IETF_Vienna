@@ -85,8 +85,10 @@ THE FEDERATION CATALOG:
   pointer (_catalog._agents.<domain> / _index._agents.<domain>
   SVCB records) and returns all catalog agents with these NEW
   response fields (present only for ARD-sourced results):
-    - capability_source = "ard_catalog"
-    - endpoint_source   = "ard_card" or "ard_inline"
+    - capability_source = "agent_card"          (dns-aid dereferenced the entry's mcp-server-card.json)
+    - endpoint_source   = "http_index_fallback" (these catalog-only agents have no per-agent SVCB
+                          and their metadata cards carry no live endpoint; you'd only see
+                          "ard_card"/"ard_inline" if a card advertised a concrete reachable endpoint)
     - trust_manifest    = {{identity, identityType, attestations[], provenance[], ...}}
   When present, surface trust_manifest.identity and the list of
   attestation types in the audit chain (see AUDIT CHAIN FOR ARD
