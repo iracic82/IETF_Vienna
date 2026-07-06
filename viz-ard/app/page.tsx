@@ -122,6 +122,7 @@ export default function Page() {
 
         <main className="flex-1 relative">
           <ReactFlow
+            key={activeFlowId}
             nodes={decoratedNodes}
             edges={decoratedEdges}
             nodeTypes={explorerNodeTypes}

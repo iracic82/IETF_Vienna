@@ -25,7 +25,7 @@ export function DetailPanel({ step }: { step: FlowStep | null }) {
         <h2 className="text-[14px] font-semibold mt-0.5">{step.detail.title}</h2>
       </div>
 
-      <Tabs defaultValue={defaultTab} className="flex-1 flex flex-col">
+      <Tabs key={step.detail.title} defaultValue={defaultTab} className="flex-1 flex flex-col">
         <TabsList className="px-3">
           {tabs.map((t) => (
             <TabsTrigger key={t} value={t}>
