@@ -23,6 +23,8 @@ export type FlowStep = {
   nodeId: string;                 // which graph node lights up
   edgeFrom?: string;              // which edge animates in
   kind: FlowStepKind;
+  outcome?: "denied";            // renders the active node/edge in red
+                                  // (a policy block, not a success)
   detail: {
     title: string;
     rightPaneTabs: ("request" | "response" | "signature" | "trust")[];
@@ -172,43 +174,43 @@ export const IETF_FLOW: Flow = {
       },
     },
     {
-      id: "7", label: "MCP initialize", nodeId: "gateway", edgeFrom: "e7", kind: "mcp_open",
+      id: "7", label: "SDK guard check", nodeId: "sdk-guard", edgeFrom: "e9", kind: "jws_verify",
       detail: {
-        title: "Step 7 — call_agent_tool opens MCP through agentgateway",
+        title: "Step 7 — dns-aid SDK caller-side policy guard runs FIRST (Layer 1)",
+        rightPaneTabs: ["request", "response", "trust"],
+        sampleRequest: 'await check_target_policy(\n    policy_uri="https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json",\n    tool_name="lookup_ip",\n    method="tools/call",\n    caller_id="strands-agent-ietf-lab",\n)\n\n# agent_vertex.py runs this guard BEFORE call_agent_tool() invokes\n# anything. Only allowed=True lets the MCP call (next step) go out.\nHelper: dns_aid.sdk.policy.guard.check_target_policy (dns-aid ≥0.21.3)',
+        sampleResponse: 'PolicyResult(\n  allowed=True,\n  violations=[],\n  reason="allowed",\n)\n\n[sdk-guard] tool=\'lookup_ip\' → ALLOWED by SDK caller guard\n\n(With POLICY_OVERRIDE → policy-strict.json this returns allowed=False\n and the MCP call never happens — see the "Discover & deny" flow.)',
+        sampleTrust: 'Same PolicyEvaluator used by:\n  Layer 1 — caller SDK (this step)\n  Layer 2 — target ASGI middleware\n  Layer 3 — runtime gateway CEL\n  Layer 0 — bind-aid RPZ (IETF2)\n\nOne policy.json drives all four layers — published in DNS, evaluated\nwherever enforcement makes sense for the threat model.',
+      },
+    },
+    {
+      id: "8", label: "MCP initialize", nodeId: "gateway", edgeFrom: "e7", kind: "mcp_open",
+      detail: {
+        title: "Step 8 — guard allowed → call_agent_tool opens MCP through agentgateway",
         rightPaneTabs: ["request"],
         sampleRequest: 'POST http://agentgateway:3000/ip-reputation/mcp\nContent-Type: application/json\nAccept: application/json, text/event-stream\nMCP-Protocol-Version: 2025-03-26\n\n{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "method": "initialize",\n  "params": {"protocolVersion": "2025-03-26"}\n}',
       },
     },
     {
-      id: "7b", label: "SDK guard check", nodeId: "sdk-guard", edgeFrom: "e9", kind: "jws_verify",
+      id: "9", label: "tools/call lookup_ip", nodeId: "fastmcp", edgeFrom: "e8", kind: "mcp_call",
       detail: {
-        title: "Step 7b — dns-aid SDK caller-side policy guard (Layer 1)",
-        rightPaneTabs: ["request", "response", "trust"],
-        sampleRequest: 'await check_target_policy(\n    policy_uri="https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy.json",\n    tool_name="lookup_ip",\n    method="tools/call",\n    caller_id="strands-agent-ietf-lab",\n)\n\nHelper: dns_aid.sdk.policy.guard.check_target_policy (dns-aid ≥0.21.3)\nWrapped in sdk_policy_check() — agent_vertex.py',
-        sampleResponse: 'PolicyResult(\n  allowed=True,\n  violations=[],\n  reason="allowed",\n)\n\n[sdk-guard] tool=\'lookup_ip\' → ALLOWED by SDK caller guard\n\n(With POLICY_OVERRIDE → policy-strict.json: allowed=False,\n  violations=[{rule:"cel:tool-deny-all",\n              detail:"STRICT policy: \'lookup_ip\' is BLOCKED"}])',
-        sampleTrust: 'Same PolicyEvaluator used by:\n  Layer 1 — caller SDK (this step)\n  Layer 2 — target ASGI middleware\n  Layer 3 — runtime gateway CEL\n  Layer 0 — bind-aid RPZ (IETF2)\n\nOne policy.json drives all four layers — published in DNS, evaluated\nwherever enforcement makes sense for the threat model.',
-      },
-    },
-    {
-      id: "8", label: "tools/call lookup_ip", nodeId: "fastmcp", edgeFrom: "e8", kind: "mcp_call",
-      detail: {
-        title: "Step 8 — Invoke lookup_ip on fastmcp-ip-reputation",
+        title: "Step 9 — Invoke lookup_ip on fastmcp-ip-reputation",
         rightPaneTabs: ["request"],
         sampleRequest: '{\n  "jsonrpc": "2.0",\n  "id": 2,\n  "method": "tools/call",\n  "params": {\n    "name": "lookup_ip",\n    "arguments": {"ip": "185.220.101.45"}\n  }\n}',
       },
     },
     {
-      id: "9", label: "Verdict", nodeId: "fastmcp", kind: "mcp_response",
+      id: "10", label: "Verdict", nodeId: "fastmcp", kind: "mcp_response",
       detail: {
-        title: "Step 9 — Federation returns verdict from real lookup DB",
+        title: "Step 10 — Federation returns verdict from real lookup DB",
         rightPaneTabs: ["response"],
         sampleResponse: '{\n  "ip": "185.220.101.45",\n  "verdict": "malicious",\n  "confidence": 0.95,\n  "sources": ["tor-exit-list", "abuse.ch"],\n  "tags": ["tor"]\n}',
       },
     },
     {
-      id: "10", label: "Synthesis + audit chain", nodeId: "agent", kind: "synthesis",
+      id: "11", label: "Synthesis + audit chain", nodeId: "agent", kind: "synthesis",
       detail: {
-        title: "Step 10 — Agent synthesizes answer with honest audit trail",
+        title: "Step 11 — Agent synthesizes answer with honest audit trail",
         rightPaneTabs: ["response"],
         sampleResponse: 'agent> **Verdict:** malicious\n       **Confidence:** 0.95\n       **Sources:** tor-exit-list, abuse.ch\n       **Trust chain (audit):**\n       - SVCB record: ip-reputation.${SLUG}.lab.ccdesanity.com\n       - DNSSEC: validated (AD flag set on SVCB query against 1.1.1.1)\n       - JWS signature: not signed (cap doc unsigned)\n       - Cap doc: https://ietf-vienna-cap-docs.s3.amazonaws.com/...v1.json (fetched, agent=ip-reputation, version=1.0.0)\n       - Policy: https://ietf-vienna-cap-docs.s3.amazonaws.com/...policy.json\n       - Invoked via: http://agentgateway:3000/ip-reputation/mcp',
       },
@@ -264,27 +266,19 @@ export const IETF_DENIED_FLOW: Flow = {
       },
     },
     {
-      id: "7", label: "MCP initialize", nodeId: "gateway", edgeFrom: "e7", kind: "mcp_open",
+      id: "5", label: "SDK guard — DENIED", nodeId: "sdk-guard", edgeFrom: "e9", kind: "jws_verify", outcome: "denied",
       detail: {
-        title: "Step 7 — MCP session opens (still happens — gateway has the route)",
-        rightPaneTabs: ["request"],
-        sampleRequest: 'POST http://agentgateway:3000/ip-reputation/mcp\n{"method":"initialize", ...}\n\nThe initialize handshake completes — the gateway routes it through\nbecause the gateway itself has no policy enforcement wired here.\n(Layer 3 enforcement is the next IETF workshop.)',
-      },
-    },
-    {
-      id: "7b", label: "SDK guard — DENIED", nodeId: "sdk-guard", edgeFrom: "e9", kind: "jws_verify",
-      detail: {
-        title: "Step 7b — SDK caller-side guard fires → DENIED (no network call)",
+        title: "Step 5 — SDK caller-side guard DENIES the lookup_ip call (Layer 1)",
         rightPaneTabs: ["request", "response", "trust"],
-        sampleRequest: 'await check_target_policy(\n    policy_uri="…/policy-strict.json",   # via POLICY_OVERRIDE\n    tool_name="lookup_ip",\n    method="tools/call",\n    caller_id="strands-agent-ietf-lab",\n)',
+        sampleRequest: 'await check_target_policy(\n    policy_uri="…/policy-strict.json",   # via POLICY_OVERRIDE\n    tool_name="lookup_ip",\n    method="tools/call",\n    caller_id="strands-agent-ietf-lab",\n)\n\n# This guard runs BEFORE call_agent_tool(). Because it denies, the\n# agent never opens the MCP session — nothing reaches agentgateway\n# or FastMCP (they stay dark, to the right).',
         sampleResponse: 'PolicyResult(\n  allowed=False,\n  violations=[\n    PolicyViolation(\n      rule="cel:tool-deny-all",\n      detail="STRICT policy: \'lookup_ip\' is BLOCKED. Only initialize/tools/list permitted."\n    )\n  ],\n)\n\n[sdk-guard] tool=\'lookup_ip\' → DENIED\n[result] {"success": false, "blocked_by": "dns-aid SDK caller-side guard (Layer 1)", "telemetry": {"latency_ms": 0, "status": "policy_denied"}}',
-        sampleTrust: 'STRICT policy CEL rule (request must be TRUE to be allowed):\n  request.tool_name == null  // only meta-methods like tools/list\n\nFor tool_name="lookup_ip" the expression evaluates FALSE → deny effect\nfires → PolicyResult.allowed=False.\n\nlatency_ms=0 — the network call was never made. The SDK guard\nrefused the invocation before the bytes left the process.',
+        sampleTrust: 'STRICT policy CEL rule (request must be TRUE to be allowed):\n  request.tool_name == null  // only meta-methods like tools/list\n\nFor tool_name="lookup_ip" the expression evaluates FALSE → deny effect\nfires → PolicyResult.allowed=False.\n\nlatency_ms=0 — the network call was NEVER made. The guard refused the\ninvocation before any bytes left the process. This is why agentgateway\nand FastMCP never light up in this flow — the call died at Layer 1.',
       },
     },
     {
-      id: "10", label: "Model refuses gracefully", nodeId: "agent", kind: "synthesis",
+      id: "6", label: "Model refuses gracefully", nodeId: "agent", kind: "synthesis",
       detail: {
-        title: "Step 10 — Gemini sees the structured denial and refuses cleanly",
+        title: "Step 6 — Gemini sees the structured denial and refuses cleanly",
         rightPaneTabs: ["response"],
         sampleResponse: 'agent> The lookup for 185.220.101.45 was blocked by a security policy.\n       I cannot provide a verdict.\n\n       **Reason:** The tool call was denied by the agent\'s security\n       policy. The policy URI is\n       https://ietf-vienna-cap-docs.s3.amazonaws.com/ip-reputation/policy-strict.json\n       and the reason given was: "STRICT policy: \'lookup_ip\' is BLOCKED.\n       Only initialize/tools/list permitted."\n\nNo verdict invented. No retry storm. No hallucinated source. The model\nreceives a structured PolicyResult and surfaces it honestly.',
       },

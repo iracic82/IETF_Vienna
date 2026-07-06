@@ -25,10 +25,16 @@ export default function Page() {
 
   const currentStep = flow.steps[step] ?? null;
   const activeNodeId = currentStep?.nodeId;
+  const denied = currentStep?.outcome === "denied";
+  const activeColor = denied ? "#f87171" : "var(--color-accent)";
 
   const decoratedNodes: Node[] = flow.nodes.map((n) => ({
     ...n,
-    data: { ...n.data, active: n.id === activeNodeId },
+    data: {
+      ...n.data,
+      active: n.id === activeNodeId,
+      denied: denied && n.id === activeNodeId,
+    },
   }));
 
   // Edge styling pass:
@@ -46,7 +52,7 @@ export default function Page() {
       label: isActive ? e.label : undefined,
       className: isActive ? "flow-edge-animated" : undefined,
       style: {
-        stroke: isActive ? "var(--color-accent)" : "var(--color-border-strong)",
+        stroke: isActive ? activeColor : "var(--color-border-strong)",
         strokeWidth: isActive ? 2.2 : 1,
         opacity: isActive ? 1 : 0.35,
       },
@@ -54,7 +60,7 @@ export default function Page() {
         type: MarkerType.ArrowClosed,
         width: 14,
         height: 14,
-        color: isActive ? "var(--color-accent)" : "var(--color-border-strong)",
+        color: isActive ? activeColor : "var(--color-border-strong)",
       },
       labelStyle: {
         fontSize: 11,
@@ -64,7 +70,7 @@ export default function Page() {
       labelBgStyle: {
         fill: "var(--color-bg-panel)",
         fillOpacity: 1,
-        stroke: "var(--color-accent)",
+        stroke: activeColor,
         strokeWidth: 1,
       },
       labelBgPadding: [8, 5] as [number, number],
