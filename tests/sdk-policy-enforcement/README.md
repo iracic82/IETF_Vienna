@@ -1,6 +1,6 @@
 # SDK Policy Enforcement — Standalone Test
 
-Verifies the [dns-aid SDK](https://github.com/infobloxopen/dns-aid-core/tree/main/src/dns_aid/sdk/policy)
+Verifies the [dns-aid SDK](https://github.com/dns-aid/dns-aid-core/tree/main/src/dns_aid/sdk/policy)
 caller-side policy guard correctly gates MCP tool invocations based
 on a published policy document.
 

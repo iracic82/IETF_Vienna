@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publish this sandbox's DNS-AID records via the official dns-aid CLI.
 #
-# Uses https://github.com/infobloxopen/dns-aid-core — installed by the
+# Uses https://github.com/dns-aid/dns-aid-core — installed by the
 # parent setup-host into a venv at /opt/dns-aid-venv. We just invoke
 # `dns-aid publish` once per agent.
 #
