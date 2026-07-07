@@ -49,7 +49,7 @@ DNS-AID is the IETF draft + reference implementation that makes this work:
 
 - IETF draft: [`draft-mozleywilliams-dnsop-dnsaid`](https://datatracker.ietf.org/doc/draft-mozleywilliams-dnsop-dnsaid/)
 - Project site: [dns-aid.org](https://dns-aid.org)
-- Reference implementation: [`infobloxopen/dns-aid-core`](https://github.com/infobloxopen/dns-aid-core)
+- Reference implementation: [`dns-aid/dns-aid-core`](https://github.com/dns-aid/dns-aid-core)
   — Python library, CLI, MCP server, and an SDK with **caller- and
   target-side policy enforcement** (the part this lab exercises).
 
@@ -67,7 +67,7 @@ DNS-AID is the IETF draft + reference implementation that makes this work:
 
 DNS-AID's design is that the same `policy_uri` published in DNS is
 evaluated at multiple, independent points. This lab exercises the
-**two SDK enforcement points** in the [`dns_aid.sdk.policy`](https://github.com/infobloxopen/dns-aid-core/tree/main/src/dns_aid/sdk/policy)
+**two SDK enforcement points** in the [`dns_aid.sdk.policy`](https://github.com/dns-aid/dns-aid-core/tree/main/src/dns_aid/sdk/policy)
 package:
 
 1. **Caller-side guard** — before the agent invokes a discovered
@@ -88,7 +88,7 @@ that operates without trusting the caller's SDK behaviour.
 > **Out of scope for this lab — mentioned for context:**
 > DNS-AID also supports compiling a policy down to **Response Policy
 > Zone (RPZ)** directives that a DNSSEC-aware resolver (e.g. BIND with
-> [bind-aid](https://github.com/infobloxopen/dns-aid-core/tree/main/docs)
+> [bind-aid](https://github.com/dns-aid/dns-aid-core/tree/main/docs)
 > integration) can enforce — meaning the resolver itself refuses to
 > even tell a non-permitted caller where the target lives. We don't
 > demo the resolver layer here; that's the IETF2 workshop.

@@ -515,7 +515,7 @@ PY
 ## Bonus 3 (optional) — watch the SDK caller-side guard deny a call
 
 > Skip this section if you're short on time. It shows what the
-> [dns-aid SDK](https://github.com/infobloxopen/dns-aid-core/tree/main/src/dns_aid/sdk/policy)
+> [dns-aid SDK](https://github.com/dns-aid/dns-aid-core/tree/main/src/dns_aid/sdk/policy)
 > caller-side guard does **before** an invocation ever leaves the
 > agent process. Doesn't replace agentgateway enforcement — it adds
 > a *first* layer that catches obvious policy violations without a
@@ -622,7 +622,7 @@ publisher, Layer 3 the platform team. **One document drives them all.**
 
 The agent calls the **official dns-aid SDK helper** — no custom
 wrapper. The helper lives at
-[`dns_aid.sdk.policy.guard.check_target_policy`](https://github.com/infobloxopen/dns-aid-core/blob/main/src/dns_aid/sdk/policy/guard.py)
+[`dns_aid.sdk.policy.guard.check_target_policy`](https://github.com/dns-aid/dns-aid-core/blob/main/src/dns_aid/sdk/policy/guard.py)
 (shipped in `dns-aid>=0.21.3`) and is the same code path the
 dns-aid MCP server itself uses for caller-side enforcement. Key call:
 
