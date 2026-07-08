@@ -527,6 +527,13 @@ async def main() -> None:
 
                 # Send user message. Loop on function_call responses until plain text.
                 response = chat.send_message(line)
+                # Set True the moment a policy denial fires this turn; see
+                # the hard-stop guard below — the SYSTEM_PROMPT already
+                # tells the model to stop after a denial, but that's a
+                # request, not a guarantee (observed live: Gemini
+                # sometimes retries / explores anyway). Enforce it in
+                # code instead of hoping the model complies.
+                denied_this_turn = False
 
                 while True:
                     parts = response.candidates[0].content.parts
@@ -567,6 +574,34 @@ async def main() -> None:
 
                         print(f"  [tool] {name}({args})")
 
+                        # ── Hard stop after a policy denial ──────────
+                        # Intercept EVERY further tool call this turn
+                        # once a denial has fired — regardless of which
+                        # tool the model is now trying (retry, broader
+                        # discover_agents_via_dns, list_agent_tools,
+                        # ...). No real MCP/SDK work, just a firm
+                        # synthetic nudge, so exploration can't drag on.
+                        if denied_this_turn:
+                            result_text = json.dumps({
+                                "error": (
+                                    "STOP - a policy denial was already "
+                                    "returned for this request in this "
+                                    "turn. Do not retry the call, search "
+                                    "for other agents, or call "
+                                    "list_agent_tools. Immediately report "
+                                    "the denial from your earlier tool "
+                                    "result to the user and end your turn."
+                                ),
+                            })
+                            print("  [guard] blocked further exploration after denial")
+                            fn_response_parts.append(
+                                types.Part.from_function_response(
+                                    name=name,
+                                    response={"content": result_text},
+                                )
+                            )
+                            continue
+
                         # ── DNS-AID SDK caller-side policy guard ─────
                         # Layer 1 enforcement. See sdk_policy_check()
                         # above — the one and only SDK call site.
@@ -605,6 +640,7 @@ async def main() -> None:
                                 # Print + skip the actual MCP call.
                                 preview = result_text if len(result_text) < 400 else result_text[:400] + "..."
                                 print(f"  [result] {preview}")
+                                denied_this_turn = True
                                 continue
 
                         if name not in mcp_tool_lookup:
