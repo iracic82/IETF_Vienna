@@ -1,8 +1,9 @@
 """Vertex-Gemini agent for the IETF lab — no Strands, no LiteLLM.
 
-Tool calling goes directly via vertexai.GenerativeModel which handles
-MCP-style schemas natively. The Strands+LiteLLM+Vertex stack returns
-UNEXPECTED_TOOL_CALL on every tool invocation, so we bypass it.
+Tool calling goes directly via the google-genai client (client.chats.create,
+Vertex AI mode) which handles MCP-style schemas natively. The
+Strands+LiteLLM+Vertex stack returns UNEXPECTED_TOOL_CALL on every tool
+invocation, so we bypass it.
 
 The interaction loop is the standard "LLM with tools" pattern:
     1. Send user message + tool declarations
@@ -25,15 +26,11 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-# Vertex AI SDK
-import vertexai
-from vertexai.generative_models import (
-    Content,
-    FunctionDeclaration,
-    GenerativeModel,
-    Part,
-    Tool,
-)
+# Vertex AI SDK — unified google-genai client (vertexai.generative_models
+# is deprecated as of 2025-06-24, scheduled for removal 2026-06-24; see
+# https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk)
+from google import genai
+from google.genai import types
 
 # MCP client (stdio to dns-aid MCP server)
 from mcp import StdioServerParameters
@@ -164,11 +161,11 @@ Be terse.
 
 
 # ── MCP → Vertex tool translation ─────────────────────────────────────
-def mcp_tools_to_vertex(mcp_tools: list) -> Tool:
+def mcp_tools_to_vertex(mcp_tools: list) -> types.Tool:
     """Convert MCP tool list into a single Vertex Tool with N FunctionDeclarations.
 
     MCP tool schema:  {name, description, inputSchema (JSON Schema)}
-    Vertex schema:    FunctionDeclaration(name, description, parameters)
+    Vertex schema:    FunctionDeclaration(name, description, parameters_json_schema)
     """
     decls = []
     for t in mcp_tools:
@@ -177,13 +174,13 @@ def mcp_tools_to_vertex(mcp_tools: list) -> Tool:
         # also doesn't like some JSON Schema features. Sanitize.
         schema = _sanitize_schema(schema)
         decls.append(
-            FunctionDeclaration(
+            types.FunctionDeclaration(
                 name=t.name,
                 description=(t.description or t.name)[:1024],
-                parameters=schema,
+                parameters_json_schema=schema,
             )
         )
-    return Tool(function_declarations=decls)
+    return types.Tool(function_declarations=decls)
 
 
 _VERTEX_TYPES = {"string", "number", "integer", "boolean", "array", "object"}
@@ -464,7 +461,7 @@ def _enrich_with_cap_doc(name: str, result_text: str, sandbox_slug: str, zone: s
 
 # ── Async REPL ─────────────────────────────────────────────────────────
 async def main() -> None:
-    vertexai.init(project=PROJECT, location=LOCATION)
+    client = genai.Client(vertexai=True, project=PROJECT, location=LOCATION)
 
     server_params = StdioServerParameters(
         command=sys.executable,
@@ -482,12 +479,13 @@ async def main() -> None:
             vertex_tools = mcp_tools_to_vertex(mcp_tools)
             mcp_tool_lookup = {t.name: t for t in mcp_tools}
 
-            model = GenerativeModel(
-                model_name=MODEL_ID,
-                system_instruction=SYSTEM_PROMPT,
-                tools=[vertex_tools],
+            chat = client.chats.create(
+                model=MODEL_ID,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    tools=[vertex_tools],
+                ),
             )
-            chat = model.start_chat()
 
             print()
             print("╭─────────────────────────────────────────────────────────────╮")
@@ -582,7 +580,7 @@ async def main() -> None:
                                     },
                                 })
                                 fn_response_parts.append(
-                                    Part.from_function_response(
+                                    types.Part.from_function_response(
                                         name=name,
                                         response={"content": result_text},
                                     )
@@ -656,14 +654,19 @@ async def main() -> None:
                         print(f"  [result] {preview}")
 
                         fn_response_parts.append(
-                            Part.from_function_response(
+                            types.Part.from_function_response(
                                 name=name,
                                 response={"content": result_text},
                             )
                         )
 
                     # Send the tool outputs back; Gemini may call more tools or return text.
-                    response = chat.send_message(fn_response_parts)
+                    # Explicit role='tool' Content (rather than a bare list
+                    # of Parts) — the confirmed google-genai pattern for
+                    # returning function_response turns.
+                    response = chat.send_message(
+                        types.Content(role="tool", parts=fn_response_parts)
+                    )
 
 
 if __name__ == "__main__":

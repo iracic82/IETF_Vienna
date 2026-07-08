@@ -7,9 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends dnsutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Vertex AI SDK + dns-aid MCP client.
+# google-genai is the current unified client (agent_vertex.py); the old
+# google-cloud-aiplatform/vertexai packages are kept installed because
+# litellm[vertex] (pulled in for shared/strands_dnsaid, see below) may
+# still depend on them transitively.
 # Strands/LiteLLM are kept only because shared/strands_dnsaid imports
 # from them at module-load time (harmless even though we don't use Strands).
 RUN pip install --no-cache-dir \
+    "google-genai>=1.0" \
     "google-cloud-aiplatform>=1.38" \
     "vertexai>=1.43" \
     "mcp>=1.0" \
