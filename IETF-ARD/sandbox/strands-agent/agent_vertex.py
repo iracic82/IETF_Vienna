@@ -24,11 +24,28 @@ import re
 import sys
 import urllib.error
 import urllib.request
+import warnings
 from typing import Any
 
 # Vertex AI SDK — unified google-genai client (vertexai.generative_models
 # is deprecated as of 2025-06-24, scheduled for removal 2026-06-24; see
 # https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk)
+#
+# We no longer call vertexai.generative_models anywhere in this file —
+# but google-genai's OWN Vertex AI bridge still routes through it
+# internally for some function-calling schema shapes (confirmed live:
+# a bare client + chat + single dummy tool never triggers this warning;
+# the real 22-tool dns-aid schema set does). Harmless — both the basic
+# lookup and policy-denial flows work correctly with it present — so
+# suppress just this one message rather than leave SDK-internal noise
+# in a live demo. Scoped to the exact deprecation text so it can never
+# hide an unrelated warning.
+warnings.filterwarnings(
+    "ignore",
+    message=r"This feature is deprecated as of June 24, 2025.*",
+    category=UserWarning,
+)
+
 from google import genai
 from google.genai import types
 
