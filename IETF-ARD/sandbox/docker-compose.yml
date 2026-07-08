@@ -76,6 +76,11 @@ services:
     # residual flap: translator stickiness patch (cors_patch.py) and
     # CoreDNS prefetch + serve_stale (Corefile.tmpl). Rollback to
     # v1.2.1 here if v1.3.1 misbehaves; main IETF lab is unaffected.
+    #
+    # Fixed IP (172.28.0.10) so CoreDNS can resolve `agentgateway` via a
+    # static hosts entry (Corefile.tmpl) instead of forwarding to
+    # Docker's embedded 127.0.0.11 — which times out when queried FROM
+    # INSIDE the coredns container (see Corefile.tmpl for detail).
     image: ghcr.io/agentgateway/agentgateway:v1.3.1
     container_name: agentgateway
     command: ["-f", "/etc/agentgateway/config.yaml"]
@@ -94,7 +99,9 @@ services:
     depends_on:
       - translator
       - fastmcp-ip-reputation
-    networks: [lab]
+    networks:
+      lab:
+        ipv4_address: 172.28.0.10
 
   # ── 4. dns-aid-mcp: wrapped so events flow to the hub ───────────────
   dns-aid-mcp:

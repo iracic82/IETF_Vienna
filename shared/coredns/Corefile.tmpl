@@ -53,21 +53,32 @@
     errors
     health
     ready
-    # Everything OUTSIDE the {{ZONE}} block (Docker service names like
-    # agentgateway/event-hub, plus public names such as S3 / Vertex) is
-    # forwarded to CoreDNS's OWN Docker embedded DNS (127.0.0.11).
-    # 127.0.0.11 resolves lab-network container names locally and
-    # forwards genuine public names to the daemon's upstream.
+    # strands-agent (and the host CLI) use CoreDNS as their single
+    # resolver so lab.ccdesanity.com queries get the DNSSEC AD flag
+    # (see the {{ZONE}} block above, needed by trust_dnssec_pointers).
+    # That means CoreDNS must ALSO resolve everything else those
+    # clients need: the one Docker container name they reference
+    # (agentgateway) plus genuine public names (S3, Route 53 API,
+    # Vertex AI, etc).
     #
-    # Why: the {{ZONE}} block above forwards to 1.1.1.1/9.9.9.9 and
-    # RELAYS the DNSSEC AD flag, so lab.ccdesanity.com records validate.
-    # This lets us point strands-agent + the host at CoreDNS as their
-    # single resolver and get BOTH: the AD flag for the signed zone
-    # (needed by trust_dnssec_pointers) AND container-name resolution.
-    # (Docker's 127.0.0.11 strips AD — which is exactly why we can't let
-    # dns-aid query it directly; it only ever sees the {{ZONE}} block for
-    # the DNSSEC-checked names.)
-    forward . 127.0.0.11 {
+    # Tried forwarding non-zone queries to CoreDNS's OWN Docker
+    # embedded DNS (127.0.0.11) to get both container-name resolution
+    # and public forwarding from one target. Doesn't work: querying
+    # 127.0.0.11 FROM INSIDE the coredns container itself times out
+    # every time (`read udp 127.0.0.1:*->127.0.0.11:53: i/o timeout`
+    # in CoreDNS's own logs) — broke ALL non-zone lookups (S3, Route
+    # 53, Vertex AI googleapis.com) for strands-agent in Challenge 3.
+    #
+    # Fix: resolve the one container name via a static pinned-IP hosts
+    # entry (agentgateway is pinned to 172.28.0.10 in
+    # docker-compose.yml), and forward everything else straight to the
+    # same public DNSSEC-validating resolvers the {{ZONE}} block
+    # already uses successfully — no dependency on 127.0.0.11 at all.
+    hosts {
+        172.28.0.10 agentgateway
+        fallthrough
+    }
+    forward . 1.1.1.1 9.9.9.9 {
         prefer_udp
     }
     # Cache: 30s TTL with prefetch + short serve_stale.
