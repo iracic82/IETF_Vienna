@@ -683,7 +683,21 @@ if name == "call_agent_tool":
 ```
 
 That's it. No custom wrapper, no policy parsing in agent code —
-everything else is the SDK's job.
+the denial *decision* itself is entirely the SDK's job.
+
+> **One thing that *is* lab code, not the SDK:** after a denial, the
+> agent's own loop sets a `denied_this_turn` flag and intercepts any
+> further tool call in the same turn with a firm synthetic refusal —
+> instead of just trusting the LLM to stop on its own. Why: the system
+> prompt already *tells* Gemini to stop after a denial, but instruction-
+> following isn't a guarantee — in testing, the model sometimes retried
+> the call, listed tools, or broadened discovery looking for a
+> workaround anyway. dns-aid's SDK correctly returns "denied" every
+> time; whether the *agent* actually stops there is the calling
+> application's responsibility, not the SDK's. That's a real lesson for
+> building on top of any policy-guard SDK: enforce the stop
+> deterministically in code for anything security-relevant, don't rely
+> on a prompt alone.
 
 Behind the scenes the helper:
 
