@@ -80,11 +80,16 @@ REQUIRED FLOW for IP queries:
 
 WHEN THE USER ASKS TO USE ARD (Agentic Resource Discovery) OR TO LIST
 THE FEDERATION CATALOG:
-  Call discover_agents_via_dns with the SAME domain but pass
-  use_http_index=True. dns-aid 0.26.2+ resolves the ARD catalog
-  pointer (_catalog._agents.<domain> / _index._agents.<domain>
-  SVCB records) and returns all catalog agents with these NEW
-  response fields (present only for ARD-sourced results):
+  Call discover_agents_via_dns with the SAME domain but pass BOTH
+  use_http_index=True AND trust_dnssec_pointers=True. dns-aid 0.26.2+
+  resolves the ARD catalog pointer (_catalog._agents.<domain> /
+  _index._agents.<domain> SVCB records). The catalog is hosted
+  off-domain (on S3), so dns-aid 0.26.4+ refuses to follow the pointer
+  unless it is authenticated; trust_dnssec_pointers=True authorises it
+  because the pointer is DNSSEC-signed in the lab.ccdesanity.com zone.
+  WITHOUT trust_dnssec_pointers=True you will get ZERO agents.
+  Discovery then returns all catalog agents with these NEW response
+  fields (present only for ARD-sourced results):
     - capability_source = "agent_card"          (dns-aid dereferenced the entry's mcp-server-card.json)
     - endpoint_source   = "http_index_fallback" (these catalog-only agents have no per-agent SVCB
                           and their metadata cards carry no live endpoint; you'd only see

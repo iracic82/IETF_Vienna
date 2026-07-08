@@ -363,11 +363,13 @@ training"). Honest reporting is part of the federation contract.
 
 You've seen the agent call `discover_agents_via_dns` to find
 `ip-reputation` via the DNS-AID SVCB record. **dns-aid 0.26.2** made
-the same MCP tool ARD-aware: pass `use_http_index=True` and it
-resolves your `_catalog._agents.<domain>` SVCB pointer (published
-in C2), fetches the ARD `ai-catalog.json`, dereferences each entry's
-agent card, and returns agents WITH their `trust_manifest`. Same
-tool call — richer result.
+the same MCP tool ARD-aware: pass `use_http_index=True` and — because
+your catalog is hosted **off-domain** on S3 — `trust_dnssec_pointers=True`
+so dns-aid 0.26.4+ will follow the DNSSEC-signed `_catalog._agents`
+pointer (see C2 for the full "why"). It then resolves your pointer
+(published in C2), fetches the ARD `ai-catalog.json`, dereferences each
+entry's agent card, and returns agents WITH their `trust_manifest`.
+Same tool call — richer result.
 
 Ask the agent explicitly to discover via the ARD path:
 
@@ -381,7 +383,7 @@ debug trace — one line per catalog fetch and card dereference. The
 important lines (simplified):
 
 ```
-  [tool]  discover_agents_via_dns({'use_http_index': True, 'domain': '<slug>.lab.ccdesanity.com'})
+  [tool]  discover_agents_via_dns({'use_http_index': True, 'trust_dnssec_pointers': True, 'domain': '<slug>.lab.ccdesanity.com'})
   [info]  catalog_pointer.resolved  label=_catalog._agents  url=…/.well-known/ai-catalog.json
   [info]  http_index.ard_catalog_detected  entry_count=8  spec_version=1.0
   [debug] Cap document fetched successfully  cap_uri=…/ip-reputation/mcp-server-card.json  capabilities_count=0
@@ -421,7 +423,8 @@ agent> The catalog lists 8 agents. Here are their identities and attestations:
 > path complete.
 
 > **Same MCP tool, different transport.** The agent never learned a
-> new function call. It set one flag (`use_http_index=True`), and
+> new function call. It set two flags (`use_http_index=True`,
+> `trust_dnssec_pointers=True`), and
 > dns-aid handled the entire ARD path — SVCB pointer resolution,
 > catalog fetch, card dereferencing, trust-manifest surfacing. That's
 > the pedagogical point: **discovery format changes don't propagate

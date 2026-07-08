@@ -241,10 +241,13 @@ discovery planes:
 | **DNS-AID** (SVCB) | `<agent>.<zone>` records in Route 53 | One record per agent. SVCB target + alpn + port + cap_uri/policy_uri in TXT companions. Used in C2/C3 as the primary path. |
 | **ARD** (HTTPS) | `${ARD_GLOBAL_CATALOG}` (static) + `${ARD_API_BASE}/search` (Lambda) | One JSON document listing ALL 8 agents with full `trustManifest` (DID/SPIFFE identity, attestations, provenance), spec-correct `publisher` object, top-level `version`/`updatedAt`. Searchable via ARD §7.1 `{query: {text, filter}}` model. |
 
-> **dns-aid 0.26.2** ships native support for the ARD path INSIDE the
+> **dns-aid 0.26.2+** ships native support for the ARD path INSIDE the
 > existing `discover_agents_via_dns` MCP tool. The agent doesn't learn
-> a new function call — it just passes `use_http_index=True`. dns-aid
-> then resolves the ARD catalog pointer over DNS (an SVCB record at
+> a new function call — it just passes `use_http_index=True` (plus
+> `trust_dnssec_pointers=True`, since our catalog is hosted off-domain
+> on S3 and dns-aid 0.26.4+ only follows a DNSSEC-authenticated
+> off-domain pointer — more on that in C2). dns-aid then resolves the
+> ARD catalog pointer over DNS (an SVCB record at
 > `_catalog._agents.<domain>`, DNS-AID draft-02 §3.2 + ARD §6.1),
 > fetches `ai-catalog.json`, dereferences each entry's agent card, and
 > returns agents with a rich `trust_manifest` field.

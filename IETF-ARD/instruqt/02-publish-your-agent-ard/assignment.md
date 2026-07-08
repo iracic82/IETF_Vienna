@@ -322,6 +322,22 @@ Now `dns-aid discover` finds ARD-sourced agents natively — no curl,
 no separate tool. Watch it resolve the pointer and dereference each
 entry's agent card:
 
+> **Why `--trust-dnssec-pointers`?** Your catalog pointer
+> (`_catalog._agents.<slug>.lab.ccdesanity.com`) targets
+> `ietf-vienna-cap-docs.s3.amazonaws.com` — a host on a **different
+> domain** than the one you're querying. As of dns-aid **0.26.4**, a
+> discovery client will **not follow an off-domain catalog pointer
+> unauthenticated** — that's what stops a spoofed pointer from
+> redirecting you to a forged catalog. There are two ways to authorise
+> it: JWS-sign the catalog against the queried domain's JWKS, or —
+> since your pointer lives in the **DNSSEC-signed `lab.ccdesanity.com`
+> zone** — trust it via its validated DNSSEC record. We use the latter:
+> `--trust-dnssec-pointers` tells dns-aid to accept the off-domain
+> target *because the pointer itself is DNSSEC-authenticated*. Without
+> this flag on 0.26.4+, discovery silently falls back to the queried
+> domain's own `/.well-known/ai-catalog.json` (which doesn't exist
+> here) and returns **0 agents**.
+
 > **Note on `DNS_AID_LOG_LEVEL=CRITICAL`:** dns-aid logs its discovery
 > progress via structlog, which uses a `PrintLoggerFactory` that writes
 > to **stdout** — so those `[info]`/`[debug]` lines land in the same
@@ -331,7 +347,7 @@ entry's agent card:
 > defensively, so it's robust either way.)
 
 ```run
-DNS_AID_LOG_LEVEL=CRITICAL dns-aid discover "${SANDBOX_SLUG}.${ZONE}" --use-http-index --json > /tmp/ard-response.json
+DNS_AID_LOG_LEVEL=CRITICAL dns-aid discover "${SANDBOX_SLUG}.${ZONE}" --use-http-index --trust-dnssec-pointers --json > /tmp/ard-response.json
 python3 <<'PY'
 import json
 raw = open("/tmp/ard-response.json").read()
