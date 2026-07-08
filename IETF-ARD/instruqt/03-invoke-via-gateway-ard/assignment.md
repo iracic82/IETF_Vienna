@@ -591,6 +591,15 @@ agent> The lookup for 185.220.101.45 was blocked by a security policy.
        and the reason given was: "STRICT policy: 'lookup_ip' is BLOCKED. Only initialize/tools/list permitted."
 ```
 
+> **Your wording will differ — that's expected.** The `agent>` reply is
+> LLM-generated prose, not a template, so the exact phrasing varies
+> run to run (a bulleted "Details:" list one time, a short paragraph
+> the next, etc.). What must match every time is the *substance*:
+> `blocked_by`, `reason`, `policy_uri`, and `violations` all present
+> and correct, no verdict fabricated, no retry against another agent.
+> If any of those facts are wrong or missing, that's a real bug —
+> different words saying the same true thing is not.
+
 **Notice five things in that output:**
 - `mcp.policy_denied` is a **structured event from the official dns-aid
   SDK** (`dns_aid.sdk.policy.guard`) — same telemetry the dns-aid MCP
