@@ -407,26 +407,29 @@ agent> The catalog lists 8 agents. Here are their identities and attestations:
   … (5 more) …
 ```
 
-> **You'll see `ard_card.applied source=ard_card` in the debug, yet
-> the tool result tags `endpoint_source="http_index_fallback"` — why?**
-> Two different things. `ard_card.applied` means dns-aid *dereferenced*
-> each entry's `mcp-server-card.json` and applied it. But these 8
-> agents are **catalog-only** (no authoritative per-agent DNS SVCB)
-> and their reference cards are metadata-only (`capabilities_count=0`,
-> no service URL). So the capability came from the card
-> (`capability_source=agent_card`), but there was no real endpoint to
-> bind — dns-aid fell back to the catalog-derived host
-> (`endpoint_source=http_index_fallback`). You'd get
-> `endpoint_source=ard_card` only if a card advertised a concrete,
-> reachable endpoint. The `trust_manifest` — SPIFFE identity + 4
-> attestations — is the real win here, and it came through the ARD
-> path complete.
+> **Why `capability_source="ard_catalog"` but `endpoint_source=
+> "http_index_fallback"`?** Two separate fields, two separate answers.
+> dns-aid followed your DNSSEC-authorized catalog pointer to the ARD
+> manifest and read capabilities **directly from the catalog entry's
+> own `capabilities` field**, giving `capability_source=ard_catalog`.
+> dns-aid *also* dereferences each entry's card (`mcp-server-card.json`)
+> in a follow-up fetch — it would upgrade to `capability_source=
+> agent_card` / `endpoint_source=ard_card` if the card exposed real
+> tools and a live URL. But these 8 agents' reference cards are
+> metadata-only (no `tools`, no service URL), so that upgrade never
+> fires and both fields stay at their catalog-level values —
+> `endpoint_source=http_index_fallback`. You'd see `ard_card`/
+> `ard_inline` only if a card advertised a concrete, reachable
+> endpoint. The `trust_manifest` — SPIFFE identity + 4 attestations —
+> is the real win here, and it came through the ARD path complete, in
+> the same step as the capabilities.
 
 > **Same MCP tool, different transport.** The agent never learned a
 > new function call. It set two flags (`use_http_index=True`,
 > `trust_dnssec_pointers=True`), and
 > dns-aid handled the entire ARD path — SVCB pointer resolution,
-> catalog fetch, card dereferencing, trust-manifest surfacing. That's
+> DNSSEC-pointer trust, catalog fetch, capability + trust-manifest
+> extraction. That's
 > the pedagogical point: **discovery format changes don't propagate
 > to the agent code**.
 

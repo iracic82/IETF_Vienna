@@ -319,8 +319,9 @@ dig +short SVCB _index._agents.${SANDBOX_SLUG}.${ZONE}   @1.1.1.1
 Both should return `1 ietf-vienna-cap-docs.s3.amazonaws.com. alpn="h2" port="443"`.
 
 Now `dns-aid discover` finds ARD-sourced agents natively — no curl,
-no separate tool. Watch it resolve the pointer and dereference each
-entry's agent card:
+no separate tool. Watch it resolve the pointer, read capabilities
+from each ARD catalog entry, and try to dereference each entry's card
+for a live endpoint:
 
 > **Why `--trust-dnssec-pointers`?** Your catalog pointer
 > (`_catalog._agents.<slug>.lab.ccdesanity.com`) targets
@@ -379,8 +380,8 @@ output actually reported — honestly:
 
 | Field | Value you saw | What it means |
 |---|---|---|
-| `capability_source` | `agent_card` | dns-aid dereferenced each entry's `mcp-server-card.json` and took capabilities from the card (dns-aid's `capability_source = agent_card` resolution step). |
-| `endpoint_source` | `http_index_fallback` | These 8 agents are **catalog-only** — they have no authoritative per-agent DNS SVCB record, and the reference cards are metadata-only (no service URL). So dns-aid fell back to the catalog-derived endpoint. `ard_card` / `ard_inline` would appear only if a card carried a **real** service endpoint. |
+| `capability_source` | `ard_catalog` | dns-aid followed the DNSSEC-authorized off-domain catalog pointer and took capabilities straight from the ARD catalog entry's own `capabilities` field. dns-aid *also* tries to dereference each entry's card (`mcp-server-card.json`) for a richer/live view, but these reference cards are metadata-only (no `tools`), so nothing overrides the catalog-level value — it would upgrade to `agent_card` if a card exposed real tools. |
+| `endpoint_source` | `http_index_fallback` | Same reason — the dereferenced cards carry no service URL, so dns-aid falls back to the catalog-derived endpoint. `ard_card` / `ard_inline` would appear only if a card carried a **real** service endpoint. |
 | `endpoint` | `…s3.amazonaws.com:443` | Follows from the above — a placeholder (the catalog host), **not** a live service. The real runtime endpoint for `ip-reputation` is the agentgateway route you'll invoke in Challenge 3. |
 | `trust_manifest` | full SPIFFE identity + 4 attestations | **This is the real payload.** The federation's identity + trust evidence came through the ARD path complete and validated — that's what ARD adds over a bare SVCB lookup. |
 
