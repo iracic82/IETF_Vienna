@@ -488,6 +488,34 @@ for _ in $(seq 1 30); do
     sleep 2
 done
 
+# ── 8b. Point the HOST resolver at CoreDNS so the host CLI's dns-aid
+#       gets the DNSSEC AD flag (required by --trust-dnssec-pointers to
+#       follow the off-domain ARD catalog pointer). systemd-resolved
+#       (127.0.0.53) and Docker's 127.0.0.11 both STRIP the AD flag;
+#       CoreDNS — now bound to 127.0.0.1:53 — relays it from 1.1.1.1 for
+#       the signed lab.ccdesanity.com zone. 1.1.1.1 stays as a fallback
+#       if CoreDNS is momentarily unavailable (e.g. the C2 restart demo).
+echo "[setup] waiting for CoreDNS on 127.0.0.1:53..."
+for _ in $(seq 1 30); do
+    if dig +time=1 +tries=1 @127.0.0.1 -p 53 "${ZONE}" SOA >/dev/null 2>&1; then
+        echo "[setup] CoreDNS answering on 127.0.0.1:53"
+        break
+    fi
+    sleep 2
+done
+# Replace the systemd-resolved symlink with a static resolv.conf.
+rm -f /etc/resolv.conf
+cat > /etc/resolv.conf <<'RESOLV'
+# Host resolver → CoreDNS (127.0.0.1:53) so dns-aid sees the DNSSEC AD
+# flag for lab.ccdesanity.com (CoreDNS relays it from 1.1.1.1). Docker's
+# 127.0.0.11 and systemd-resolved (127.0.0.53) both strip AD, so we
+# bypass both. 1.1.1.1 is a fallback if CoreDNS is briefly unavailable.
+nameserver 127.0.0.1
+nameserver 1.1.1.1
+options edns0 trust-ad
+RESOLV
+echo "[setup] host resolver pointed at CoreDNS (DNSSEC AD flag available)"
+
 echo "[setup] IETF sandbox ready."
 echo "  Subdomain:  ${SANDBOX_SLUG}.${ZONE}"
 echo "  Gateway:    http://localhost:3000  (gw.${SANDBOX_SLUG}.${ZONE})"

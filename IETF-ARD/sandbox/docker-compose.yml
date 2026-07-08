@@ -118,13 +118,19 @@ services:
     command: ["-conf", "/etc/coredns/Corefile"]
     volumes:
       - ../../shared/coredns/rendered:/etc/coredns:ro
-    # Host port 53 is owned by systemd-resolved on the Ubuntu VM; expose on
-    # 5353. From the host: `dig @127.0.0.1 -p 5353 ...`
-    # From containers on the lab network: just resolve `coredns:53`.
+    # Host port 53 is owned by systemd-resolved on 127.0.0.53:53. We ALSO
+    # bind CoreDNS to 127.0.0.1:53 (a free bind address) so the host CLI's
+    # dns-aid can use CoreDNS as its resolver and get the AD flag (see
+    # setup-host). 5353 stays for `dig @127.0.0.1 -p 5353 ...`.
     ports:
+      - "127.0.0.1:53:53/udp"
+      - "127.0.0.1:53:53/tcp"
       - "5353:53/udp"
       - "5353:53/tcp"
-    networks: [lab]
+    # Fixed IP so strands-agent's mounted resolv.conf can target it.
+    networks:
+      lab:
+        ipv4_address: 172.28.0.53
 
   # ── 6. strands-agent: the student's interaction surface ─────────────
   strands-agent:
@@ -145,6 +151,11 @@ services:
     volumes:
       - ${GOOGLE_APPLICATION_CREDENTIALS}:/run/secrets/gcp-sa.json:ro
       - ../../shared/strands_dnsaid:/app/strands_dnsaid:ro
+      # Query CoreDNS (172.28.0.53) directly instead of Docker's embedded
+      # 127.0.0.11 (which strips the DNSSEC AD flag). The in-process
+      # dns_aid.mcp.server this agent spawns needs the AD flag for
+      # trust_dnssec_pointers to follow the off-domain catalog pointer.
+      - ../../shared/coredns/resolv-lab.conf:/etc/resolv.conf:ro
     stdin_open: true
     tty: true
     depends_on: [agentgateway, dns-aid-mcp, coredns]
@@ -165,3 +176,9 @@ services:
 networks:
   lab:
     driver: bridge
+    # Static subnet so CoreDNS can hold a fixed IP (172.28.0.53) that
+    # strands-agent's mounted /etc/resolv.conf can point at directly —
+    # bypassing Docker's AD-stripping 127.0.0.11 for the DNSSEC check.
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

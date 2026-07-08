@@ -53,7 +53,21 @@
     errors
     health
     ready
-    forward . 1.1.1.1 9.9.9.9 {
+    # Everything OUTSIDE the {{ZONE}} block (Docker service names like
+    # agentgateway/event-hub, plus public names such as S3 / Vertex) is
+    # forwarded to CoreDNS's OWN Docker embedded DNS (127.0.0.11).
+    # 127.0.0.11 resolves lab-network container names locally and
+    # forwards genuine public names to the daemon's upstream.
+    #
+    # Why: the {{ZONE}} block above forwards to 1.1.1.1/9.9.9.9 and
+    # RELAYS the DNSSEC AD flag, so lab.ccdesanity.com records validate.
+    # This lets us point strands-agent + the host at CoreDNS as their
+    # single resolver and get BOTH: the AD flag for the signed zone
+    # (needed by trust_dnssec_pointers) AND container-name resolution.
+    # (Docker's 127.0.0.11 strips AD — which is exactly why we can't let
+    # dns-aid query it directly; it only ever sees the {{ZONE}} block for
+    # the DNSSEC-checked names.)
+    forward . 127.0.0.11 {
         prefer_udp
     }
     # Cache: 30s TTL with prefetch + short serve_stale.
