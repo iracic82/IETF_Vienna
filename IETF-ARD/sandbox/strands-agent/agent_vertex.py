@@ -678,12 +678,13 @@ async def main() -> None:
                         )
 
                     # Send the tool outputs back; Gemini may call more tools or return text.
-                    # Explicit role='tool' Content (rather than a bare list
-                    # of Parts) — the confirmed google-genai pattern for
-                    # returning function_response turns.
-                    response = chat.send_message(
-                        types.Content(role="tool", parts=fn_response_parts)
-                    )
+                    # Chat.send_message's message param is a bare Part (or
+                    # list of Parts) — Union[str, File, Part, ...] — NOT a
+                    # Content object. Confirmed live: wrapping in
+                    # types.Content(role="tool", ...) raised ValueError
+                    # ("got <class '...types.Content'>"); a plain list of
+                    # Parts, exactly like the pre-migration code did, works.
+                    response = chat.send_message(fn_response_parts)
 
 
 if __name__ == "__main__":
